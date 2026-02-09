@@ -1,0 +1,245 @@
+客户一直无法安装软件
+
+Dear customer,
+
+Thank you for choosing our products—we truly appreciate your support!
+
+To better assist you with the issue you're experiencing, could you please let me know which Windows or OS version you're currently using?
+
+We've encountered similar cases in the past, as operating systems—particularly Windows—can sometimes be complex with drivers and firmware. 
+
+As a next step, I'd recommend:
+
+Uninstalling and reinstalling the ASIO driver and software.
+
+If the issue persists, considering a fresh Wins or OS reinstall as a last resort.
+
+Hope that it helps and have a great day!
+
+-------------------------------------------------------------------------
+
+客户就产品问题直接联系经销商
+
+Dear customer,
+
+Thank you for choosing our products—we truly appreciate your support!
+
+Regarding your case, we recommend contacting your seller for repair or exchange, especially if your unit is still under warranty.
+
+Thanks again and have a nice day!
+
+-------------------------------------------------------------------------
+
+亚马逊买了东西发现有问题
+
+Dear customer,
+
+Thank you for choosing our products—we truly appreciate your support!
+
+If your purchase is within Amazon's 30-day return window, we kindly ask that you contact Amazon directly for a return or exchange—they'll be able to assist you right away.
+
+If the 30-day window has passed, no worries—MOOER provides a 1-year warranty, and we'll be happy to help with repair or replacement.
+
+To get started, please send us the following information:
+
+Amazon Order ID:
+Product Name:
+Issue Description:
+Serial Number:
+Shipping Info:
+Email:
+
+Once we receive the details, we'll assist you as quickly as possible.
+
+Thanks again and have a nice day!
+
+-------------------------------------------------------------------------
+
+亚马逊平台保修期已过，但仍享受我司提供的保修服务
+
+Dear customer,
+
+In order to assist you with a repair or exchange, we kindly ask you to provide the following information:
+
+Amazon Order ID：
+Product: 
+Product issue: 
+Serial Number：
+Shipping Info：
+Email：
+
+Thank you for your cooperation.
+
+-------------------------------------------------------------------------
+
+安排经销商为客户解决问题
+
+Dear customer,
+
+Thank you for choosing our products—we truly appreciate your support!
+
+Regarding your case, we've forwarded your request to our sales department. They will contact our dealer to assist you shortly.
+
+Thanks again and have a nice day!
+
+-------------------------------------------------------------------------
+
+安排亚马逊为客户解决问题
+
+Dear customer,
+
+Thank you for choosing our products—we truly appreciate your support!
+
+Regarding your case, we've forwarded your request to our Amazon team. They will contact you shortly.
+
+Thanks again and have a nice day!
+
+-------------------------------------------------------------------------
+
+客户有问题我们需要他们提供视频来协助他们
+
+Dear customer,
+
+Thank you for choosing our products—we truly appreciate your support!
+
+Could you please share a video of the issue you're experiencing with the unit? It will be much easier to investigate the problem. 
+
+This will help us better understand the problem and provide the most effective assistance. 
+
+Thanks again and have a nice day!
+
+-------------------------------------------------------------------------
+
+客户需要购买替换零件
+
+Dear customer,
+
+The replacement part is $XX USD, and shipping cost from China to XXXX is about $XX USD.
+
+If you’d like to proceed, please provide us with your full name, address, postal code, and phone number. Once we have this information, we’ll prepare a commercial invoice for you.
+
+Payment can be made via PayPal. After the transaction is completed, kindly send us a confirmation message, and we’ll arrange the shipment right away.
+
+Best regards,
+
+-------------------------------------------------------------------------
+
+需要解绑 (未提供产品型号 + 序列号/流水号)
+
+Dear customer,
+
+Thank you for choosing our products—we truly appreciate your support!
+
+To assist you with resetting your registration, we’ll need your product's model & serial number. Please reply to this email with the details.
+
+Thanks again and have a nice day!
+
+-------------------------------------------------------------------------
+
+已经解绑
+
+Dear customer,
+
+Thank you for choosing our products—we truly appreciate your support!
+
+We're pleased to confirm that your product registration has been successfully reset as requested.
+
+Thanks again and have a nice day!
+
+-------------------------------------------------------------------------
+
+固件更新
+
+Dear customer,
+
+Thank you for choosing our products—we truly appreciate your support!
+
+Here are the instructions to update your firmware:
+
+1. Connect the processor to your computer using a USB cable.
+    (Important: Use a direct USB port—not an external hub.)
+2. Plug in the AC adapter.
+3. Hold the "SELECT" button and turn on the "POWER."
+4. The unit will enter "UPDATE MODE."
+5. Wait for the update to complete.
+
+Additional Tips:
+
+- If the update fails, try a different USB cable or computer.
+- Do not unplug the AC adapter or USB cable during the update.
+- If the update fails, repeat the process.
+
+Hope that it helps and have a nice day!
+
+-------------------------------------------------------------------------
+
+协助客户从官方网站下载软件/固件
+
+Dear customer,
+
+Thank you for choosing our products—we truly appreciate your support!
+
+You can easily download the latest software for your device from our official website: 
+www.mooeraudio.com > Support > Downloads
+
+For the User Manual, please search for your product model on our website and look for the download link on the product page.
+
+在这里插入产品下载链接
+
+Thank you and have a nice day!
+
+-------------------------------------------------------------------------
+
+协助客户在 Mac 上安装软件
+
+Dear customer,
+
+If you are experiencing a message saying:
+"XXXXXX" cannot be opened because it is from an unidentified developer.
+Then please ignore it.
+
+You can go to System Preferences>Security & Privacy and Allow apps download from (choose App Store and identified developers)
+
+Have a nice day!
+
+-------------------------------------------------------------------------
+
+感谢顾客的反馈
+
+Dear customer,
+
+Thank you for choosing our products—we truly appreciate your support!
+
+We greatly appreciate you taking the time to share your feedback to help us improve. Your message has been forwarded to our development team for review regarding potential firmware updates.
+
+Thanks again and have a nice day!
+
+-------------------------------------------------------------------------
+
+回答顾客投诉
+
+Dear customer
+
+I'm truly sorry to hear about your frustration with our customer support—please know that your experience is important to us, and we appreciate you taking the time to share your concerns.
+
+We completely understand how frustrating it can be when there's an issue with your product. I want to assure you that we're actively working to improve our customer support processes to better serve you and others in the future.
+
+Your feedback is invaluable to us, and we're committed to making things right. If there's anything specific you'd like assistance with regarding your unit, please don't hesitate to let me know—I'm happy to help or connect you with the right team.
+
+Thanks again for your patience and understanding.
+
+-------------------------------------------------------------------------
+
+电脑无法连接设备
+
+Please connect via computer USB port (preferably the back of the computer if it’s a desktop) and avoid using any external USB hub. Also make sure to use the USB cable that comes with the unit.
+
+-------------------------------------------------------------------------
+
+GE300升级到5.1.0版本时遇到问题
+
+
+
+
+
+

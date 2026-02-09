@@ -1,0 +1,63 @@
+# Email Automation System Configuration
+
+# Email Server Settings
+email:
+  address: support@mooeraudio.com
+  password: "YJbfQNeArD5dxk3T"
+  
+  # IMAP Settings (for reading emails)
+  imap:
+    server: imap.exmail.qq.com
+    port: 993
+    ssl: true
+    folder: INBOX
+    
+  # SMTP Settings (for saving drafts)
+  smtp:
+    server: smtp.exmail.qq.com
+    port: 465
+    ssl: true
+  
+  # Draft Folder
+  draft_folder: Drafts
+
+# Processing Settings
+processing:
+  interval: 5  # minutes between checks
+  max_emails_per_run: 10  # maximum emails to process in one run
+  
+# Logging Settings
+logging:
+  path: logs/email_automation.log
+  level: INFO  # DEBUG, INFO, WARNING, ERROR
+
+# Existing Resources Paths
+paths:
+  product_manuals: "e:\My Docment\Celeste\客服\MOOER产品说明书\"
+  email_templates: "e:\My Docment\Celeste\客服\售后模板\Customer Service Email.txt"
+  pdf_reader: "e:\My Docment\Celeste\客服\pdf_reader.py"
+
+# Response Settings
+response:
+  language: English
+  format: plain_text  # no HTML
+  max_length: 1000  # maximum response length in characters
+
+# External Services Configuration
+external_services:
+  mooer_website:
+    url: https://www.mooeraudio.com
+  
+  youtube:
+    api_key: your_youtube_api_key_here
+  
+  reddit:
+    client_id: your_reddit_client_id_here
+    client_secret: your_reddit_client_secret_here
+    user_agent: MOOER_Email_Automation/1.0
+
+# Cache Configuration
+cache:
+  ttl_mooer: 86400  # 24 hours
+  ttl_youtube: 172800  # 48 hours
+  ttl_reddit: 43200  # 12 hours

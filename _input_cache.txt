@@ -1,0 +1,15 @@
+GE200 Pro XLR out not working properlyI recently purchased the Mooer GE200 Pro. While it is a fantastic modeler, I have an issue with the XLR output. 
+ 
+ My setup is: 
+ 1) 1/4" output into FX return on an amp 
+ 2) XLR out into PA system. 
+ 
+ My signal chain has the poweramp and cab sim on. 
+ 
+ I then went to CTRL and toggle the cab sim thru ON and OFF. 
+ 
+ However, it is either BOTH the PA and Amp running with cab sim ON or the PA and Amp running with cab sim OFF. 
+ 
+ I could never get the one with cab sim ON (for PA) and one with cab sim OFF for amp. 
+ 
+ Please help!
