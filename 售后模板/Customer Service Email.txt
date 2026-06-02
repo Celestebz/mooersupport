@@ -148,7 +148,20 @@ Thanks again and have a nice day!
 
 -------------------------------------------------------------------------
 
-固件更新
+Prime P2 M2 固件更新问题
+
+Dear customer,
+
+Please download the latest firmware pack (P2 or M2) from our website
+
+Connect your unit directly to the computer’s USB port (avoid external USB hubs).
+
+Ensure the battery is at least 80% charged before updating.
+
+Sorry for the inconvenience, and thank you for your patience.
+-------------------------------------------------------------------------
+
+固件更新(Prime P1/P2/M1/M2/S1 没有"SELECT" button)
 
 Dear customer,
 
@@ -236,10 +249,76 @@ Please connect via computer USB port (preferably the back of the computer if it�
 
 -------------------------------------------------------------------------
 
-GE300升级到5.1.0版本时遇到问题
+F15i Li 固件更新失败（进度卡在37%）
 
+Dear customer,
 
+Thank you for reaching out to MOOER Support.
 
+We are sorry to hear that your F15i Li encountered an issue during the firmware update (stuck at approximately 37%). This is a situation that can sometimes occur. Please follow the troubleshooting steps below:
 
+1. Use a better USB cable
+Use the original USB-C cable that came with the F15i Li, or a thicker, higher-quality USB-C cable capable of carrying higher current. Avoid using external USB hubs, adapters, or thin/low-quality third-party cables — these are a common cause of update failures.
+
+2. Use a USB 3.0 port
+Connect the unit directly to a USB 3.0 port on your computer (the blue port). Please avoid USB 2.0 ports, USB hubs, or docking stations during the update.
+
+3. Fully charge the battery before updating
+Before attempting the update, charge the F15i Li using a 5V/2A power adapter for at least 4 hours. A low battery during a firmware update can cause the device to shut down mid-update and fail. Make sure the battery is well charged before proceeding.
+
+4. Retry the update
+- Disconnect the unit from Mooer Studio and turn it off completely.
+- Re-download the latest F15i Li firmware from our official website: www.mooeraudio.com > Support > Downloads
+- Re-enter Update Mode: With the unit powered off, hold the TOOLS button, then press and hold the POWER button until the screen shows the update mode indicator.
+- Reconnect the USB cable, open Mooer Studio, and retry the update.
+
+If the unit still does not respond after following these steps, please let us know and provide:
+- Your F15i Li serial number
+- A photo of the screen when the unit is powered on
+- The computer operating system and USB port type you are using
+
+We will arrange a repair or replacement for you as quickly as possible. We apologize for any inconvenience.
+
+Best regards,
+MOOER Audio Support Team
+
+-------------------------------------------------------------------------
+
+macOS Error: "Failed to parse the MR file"
+This error usually occurs when the software is run directly from the mounted Disk Image (.dmg) or the Downloads folder rather than being properly installed. To fix this:
+
+Close the Mooer Studio software.
+
+Drag the Mooer Studio icon into your Mac's Applications folder.
+
+Eject the installer (.dmg) image from your desktop.
+
+Launch the software directly from the Applications folder and try the update again.
+
+If the problem persists after trying these steps, please let us know your computer's operating system version, and we will assist you further.
+
+-------------------------------------------------------------------------
+
+配件报价并询问收货信息
+
+Dear customer,
+
+Thank you for choosing our products—we truly appreciate your support!
+
+The price for the [PRODUCT] [PART NAME] is [PRICE] USD.
+
+To proceed with the order, please provide the following shipping information:
+
+- Full Name (Recipient):
+- Phone Number:
+- Complete Shipping Address:
+- City:
+- State/Province:
+- Zip Code/Postal Code:
+- Country:
+
+Once we receive your shipping details, we will send you the total amount including shipping costs and payment instructions.
+
+Thanks again and have a nice day!
 
 

@@ -12,11 +12,11 @@ from content_extractor import ContentExtractor
 from response_generator import ResponseGenerator
 
 # Configure logging to stderr to keep stdout clean for the result
-logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 def main():
     parser = argparse.ArgumentParser(description="Generate email response from text input")
-    parser.add_argument("text", nargs="?", help="Email content text")
+    parser.add_argument("--text", help="Email content text")
     parser.add_argument("--file", help="Read email content from file")
     args = parser.parse_args()
 
@@ -53,16 +53,16 @@ def main():
         generator = ResponseGenerator(templates_path, pdf_reader_path, product_manuals_path)
 
         # 1. Extract Info
-        # Suppress extraction logs by ensuring logger level is high
-        extractor.logger.setLevel(logging.ERROR)
+        # Ensure extraction logs are visible
+        extractor.logger.setLevel(logging.INFO)
         
         info = extractor.extract_info(email_content)
         
         # 2. Generate Response
-        # Suppress generator logs
-        generator.logger.setLevel(logging.ERROR)
+        # Ensure generator logs are visible
+        generator.logger.setLevel(logging.INFO)
         if generator.ai_handler:
-             generator.ai_handler.logger.setLevel(logging.ERROR)
+             generator.ai_handler.logger.setLevel(logging.INFO)
 
         response = generator.generate_response(info, email_content)
 

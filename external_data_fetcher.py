@@ -123,11 +123,11 @@ class ExternalDataFetcher:
             # For now, return placeholder data
             # In production, this would use the YouTube Data API
             
-            # Placeholder YouTube results
+            # Placeholder YouTube results (as dicts with title and url)
             youtube_videos = [
-                f"MOOER {query} Tutorial Video 1",
-                f"MOOER {query} User Guide",
-                f"MOOER {query} Tips and Tricks"
+                {"title": f"MOOER {query} Tutorial Video 1", "url": "https://youtube.com/watch?v=example1"},
+                {"title": f"MOOER {query} User Guide", "url": "https://youtube.com/watch?v=example2"},
+                {"title": f"MOOER {query} Tips and Tricks", "url": "https://youtube.com/watch?v=example3"}
             ]
             
             # Store in cache
@@ -154,11 +154,11 @@ class ExternalDataFetcher:
             # For now, return placeholder data
             # In production, this would use PRAW to access Reddit API
             
-            # Placeholder Reddit discussions
+            # Placeholder Reddit discussions (as dicts with title and url)
             reddit_discussions = [
-                f"Reddit user: How do I use {query}?",
-                f"{query} troubleshooting tips from Reddit",
-                f"{query} review on Reddit"
+                {"title": f"Reddit user: How do I use {query}?", "url": "https://reddit.com/r/MooerAudio/comments/example1"},
+                {"title": f"{query} troubleshooting tips from Reddit", "url": "https://reddit.com/r/MooerAudio/comments/example2"},
+                {"title": f"{query} review on Reddit", "url": "https://reddit.com/r/MooerAudio/comments/example3"}
             ]
             
             # Store in cache

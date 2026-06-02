@@ -16,8 +16,32 @@ processed_hashes.txt
 
 # Environment Variables
 .env
+.env.sample
 
-# IDE
+# Sensitive Configuration
+config.yml
+emails.db
+
+# Data Files
+assets/
+
+# IDE & Editor
 .vscode/
 .idea/
 .trae/
+.claude/
+
+# Shortcuts and OS files
+*.lnk
+MOOER Support Bot/
+
+# Dustbin - deprecated code
+dustbin/
+
+# Temporary files
+_input_cache.txt
+temp_*.py
+*.txt
+!售后模板/*.txt
+!requirements.txt
+!.gitignore
