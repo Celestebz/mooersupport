@@ -1,40 +1,14 @@
 @echo off
-chcp 65001 >nul
+REM Start MOOER Support Dashboard
+echo ============================================
+echo   MOOER Support Dashboard
+echo   http://localhost:8501
+echo ============================================
+
 cd /d "%~dp0"
-title Mooer Support Dashboard
 
-echo =======================================
-echo Mooer Support Agent Dashboard
-echo =======================================
-echo.
+set VENV=C:\Users\USER\.workbuddy\binaries\python\envs\mooer-api
 
-:: Check for virtual environment
-if exist ".venv\Scripts\activate.bat" (
-    echo [INFO] Activating virtual environment...
-    call ".venv\Scripts\activate.bat"
-) else (
-    echo [WARN] .venv not found. Using system Python...
-)
+"%VENV%\Scripts\python.exe" -m streamlit run dashboard.py --server.port 8501
 
-:: Check if streamlit is installed
-python -c "import streamlit" 2>nul
-if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Streamlit is not installed!
-    echo [INFO] Installing dependencies...
-    pip install -r requirements.txt
-    if %ERRORLEVEL% NEQ 0 (
-        echo [ERROR] Failed to install dependencies.
-        pause
-        exit /b 1
-    )
-)
-
-echo [INFO] Starting Dashboard...
-echo.
-streamlit run dashboard.py
-
-if %ERRORLEVEL% NEQ 0 (
-    echo.
-    echo [ERROR] Dashboard crashed or failed to start.
-    pause
-)
+pause

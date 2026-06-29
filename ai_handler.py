@@ -21,6 +21,9 @@ class AIHandler:
         self.enabled = os.getenv("LLM_ENABLED", "False").lower() == "true"
         
         self.client = None
+        self.last_requires_human_review = False
+        self.last_human_review_reason = ""
+        self.last_human_review_label = ""
         if self.enabled and self.api_key:
             try:
                 self.client = OpenAI(
@@ -52,22 +55,34 @@ class AIHandler:
             dict: {
                 "product_model": str,
                 "intent": str,
+                "mail_category": str,
+                "issue_category": str,
+                "reply_template_category": str,
+                "classification_confidence": float,
+                "classification_reason": str,
+                "evidence": list,
+                "needs_human_review": bool,
                 "urgency": str,
                 "sentiment": str,
                 "key_issues": list,
-                "language": str,
-                "email_type": str  # product_related, non_product, being_processed, other
+                "language": str
             }
         """
         if not self.enabled or not self.client:
             return {
                 "product_model": "Unknown",
                 "intent": "Technical Support",
+                "mail_category": "technical_support",
+                "issue_category": "unknown_issue",
+                "reply_template_category": "manual_human_reply",
+                "classification_confidence": 0.0,
+                "classification_reason": "AI unavailable; fallback classification only",
+                "evidence": [],
+                "needs_human_review": True,
                 "urgency": "Medium",
                 "sentiment": "Neutral",
                 "key_issues": ["AI Unavailable"],
-                "language": "en",
-                "email_type": "other"
+                "language": "en"
             }
             
         try:
@@ -107,6 +122,8 @@ IMPORTANT - PRODUCT MODEL RULES (STRICT):
    - "F40i" not "F40 i"
 
 2. EASY TO CONFUSE PRODUCTS - BE VERY CAREFUL:
+   - GE100 is DIFFERENT from GE100 Pro and GE100 Pro Li! They are COMPLETELY different products with different hardware, features, and manuals. DO NOT confuse them.
+   - GE100 Pro is DIFFERENT from GE100 Pro Li! GE100 Pro Li has a built-in lithium battery, GE100 Pro does not. They share a manual but are different hardware variants.
    - GE1000 is DIFFERENT from GL100! GE1000 is guitar multi-effects, GL100 is looper
    - GL200 is DIFFERENT from GE150/GE200! GL200 is looper, GE150/GE200 are multi-effects
    - GS1000 is DIFFERENT from GE300! They are completely different models
@@ -121,7 +138,7 @@ IMPORTANT - PRODUCT MODEL RULES (STRICT):
    - Any model number that doesn't match the official list below
 
 4. OFFICIAL MOOER PRODUCT LIST (use these exact names):
-   GE series: GE100, GE150, GE150 Pro, GE150 Plus, GE150 MAX, GE200, GE200 Pro, GE200 PLUS Li, GE250, GE300, GE300 Lite, GE1000
+   GE series: GE100, GE100 Pro, GE100 Pro Li, GE150, GE150 Pro, GE150 Plus, GE150 MAX, GE200, GE200 Pro, GE200 PLUS Li, GE250, GE300, GE300 Lite, GE1000
    Prime series: Prime P1, Prime P2, Prime M1, Prime M2
    GL series: GL100, GL200
    GS series: GS1000, GS1000Li
@@ -129,7 +146,15 @@ IMPORTANT - PRODUCT MODEL RULES (STRICT):
    F series: F15i, F15i Li, F40i
    Others: GTRS 800, GTRS 900, Radar, Preamp Live, Ocean Machine, Red Truck, Black Truck, Hornet, Drummer X2, Loopation, GWF4, PE100, Tone Capture, PCL6 MKII
 
-5. EMAIL CONTEXT RULES:
+5. PRODUCT COLOR / VARIANT FACTS (CRITICAL - do not guess or make up color options):
+   - GE100 Pro (non-Li, standard power): WHITE only
+   - GE100 Pro Li (lithium battery-powered): BLACK only
+   - GS1000 (non-Li, standard power): WHITE only
+   - GS1000Li (lithium battery-powered): BLACK only
+   - Rule: Li (battery) version = Black; Non-Li version = White (applies to GE100 Pro and GS1000 lines)
+   - If a customer asks about a color not listed above (e.g., "white GE100 Pro Li"), tell them that color is not available for that variant.
+
+6. EMAIL CONTEXT RULES:
    - If subject mentions a specific model (e.g., "GE1000", "GL200"), that is the product
    - For REPLY emails, look at BOTH new message AND quoted original message
    - If email is NOT about a specific product (partnership, spam, etc.), use "Unknown"
@@ -144,6 +169,9 @@ Body:
 INSTRUCTIONS:
 1. Identify the **Product Model** using the rules above.
    - CRITICAL: Use EXACT naming from official product list
+   - CRITICAL: If email mentions "GE100 Pro Li", product is "GE100 Pro Li" (NOT "GE100" or "GE100 Pro")
+   - CRITICAL: If email mentions "GE100 Pro" (without "Li"), product is "GE100 Pro" (NOT "GE100" or "GE100 Pro Li")
+   - CRITICAL: If email ONLY mentions "GE100" (no "Pro"), product is "GE100" (NOT "GE100 Pro" or "GE100 Pro Li")
    - CRITICAL: If subject contains "GE1000", product is GE1000 (not GL100)
    - CRITICAL: If subject contains "GE300", product is GE300 (not GS1000)
    - Only use "Unknown" if NO model is mentioned at all
@@ -152,7 +180,8 @@ INSTRUCTIONS:
    - "Firmware Update": Specific issues with updating.
    - "Warranty/Repair": Hardware is broken or needs return.
    - "Sales/Stock": Asking about price or availability.
-   - "Spam": Unrelated ads, SEO spam, or system notifications.
+   - "Spam": Clearly unrelated ads or SEO spam.
+   - "System Notification": Delivery failures, automated mailbox/system messages, or machine-generated notices.
    - "Gratitude": Pure thank you email with no new questions.
    - "Partnership/Collaboration": Business proposals, artist endorsements, distribution inquiries.
    - "Press/Media": Interview requests, press releases, review requests.
@@ -162,11 +191,79 @@ INSTRUCTIONS:
 4. Analyze **Sentiment**: "Positive", "Neutral", "Negative".
 5. Extract **Key Issues**: A list of 1-3 short strings summarizing the problem.
 6. Detect **Language**: The language code (e.g., "en", "zh", "es").
-7. Determine **Email Type**:
-   - "product_related": Customer/end-user asking about a MOOER product they own
-   - "non_product": NOT about specific product (partnership, spam, press, dealer, thank you with no issue)
-   - "being_processed": Internal team forwarding/CC'ing for info, not expecting new response
-   - "other": Cannot determine
+7. Extract structured issue facts from the customer's CURRENT message. Do not let quoted history override the new message.
+   Return issue_facts as an object:
+   - product_model: exact product from the current issue when present
+   - action: e.g. firmware_update, app_connection, audio_output, warranty_repair, software_driver
+   - failure_stage: e.g. progress_0_percent, progress_19_percent, after_update, startup, normal_use
+   - symptoms: e.g. comp_button_flashing, update_error, freeze_after_update, distorted_sound, no_output
+   - versions: firmware/software versions explicitly mentioned
+   - platforms: OS/USB/app/computer details explicitly mentioned
+   - evidence: 1-2 short evidence snippets from the email
+   - possible_different_issue_reasons: why this may NOT be the same as a broader category
+   Return issue_fingerprint as a stable snake_case phrase, for example:
+   firmware_update_failed_progress_or_error, firmware_update_freeze_after_update,
+   software_old_version_or_backup_request, software_window_display_or_scaling,
+   audio_output_noise_or_distortion.
+8. Choose stable support-system classifications. You MUST choose from these exact values:
+
+mail_category:
+- technical_support
+- firmware_update
+- warranty_repair
+- parts_purchase
+- registration_account
+- sales_stock
+- feedback_suggestion
+- complaint
+- customer_followup_ack
+- business_media
+- spam_irrelevant
+- system_notification
+- unclassified
+
+issue_category:
+- app_version_too_low_connection_failure
+- app_usb_bluetooth_connection
+- firmware_update_failed
+- audio_output_noise
+- gs1000_balance_output_issue
+- screen_led_hardware
+- software_install_driver
+- registration_binding_account
+- battery_charging_power
+- parts_quote_shipping
+- usage_midi_looper_preset
+- purchase_stock_channel
+- warranty_repair_process
+- business_sales_media
+- spam_irrelevant
+- unknown_issue
+
+reply_template_category:
+- troubleshooting_steps
+- firmware_instruction
+- comfort_ack_wait_solution
+- known_solution_reply
+- request_more_info
+- warranty_process
+- parts_quote_or_request_evidence
+- app_connection_instruction
+- account_registration_instruction
+- escalate_to_sales_media
+- manual_human_reply
+- no_customer_reply
+
+AI-FIRST CLASSIFICATION RULES:
+- The AI classification is the primary classification. Do not rely on a single keyword if the context says otherwise.
+- Do NOT mark "Gratitude" or customer acknowledgement as no-reply if the email contains any new issue, follow-up, complaint, missing answer, or unresolved problem.
+- If an email is a distributor/internal forward but includes a real customer product issue, classify the product issue and set needs_human_review=true instead of suppressing it.
+- If you are unsure, use unclassified/unknown_issue/manual_human_reply and set needs_human_review=true.
+- Product, issue_category, and issue_fingerprint must be supported by evidence from the current customer message or subject. If a product appears only in quoted history, lower confidence and set needs_human_review=true.
+- Separate similar-looking firmware issues: update progress/error, freeze after update, old software/version request, and desktop software display problems are different issue facts unless the email explicitly connects them.
+- For iAMP family products (F15i, F40i, SD10i, SD30i, iAMP), if the current message says the app/application/version is "too low" or "to low", asks the customer to update even though the latest app was installed, or mentions iAMP app 1.6.0 after the June 11 update, use issue_category=app_version_too_low_connection_failure and issue_fingerprint=app_version_too_low_connection_failure. Do not classify this as firmware_update_failed unless firmware update progress/error is explicitly described.
+- Return evidence as 1-3 short snippets copied or paraphrased from the email that justify the classification.
+- classification_confidence must be a number from 0.0 to 1.0. Use <0.65 when the classification needs human review.
 
 RESPONSE FORMAT:
 Return ONLY a valid JSON object.
@@ -205,19 +302,55 @@ Return ONLY a valid JSON object.
             return {
                 "product_model": "Unknown",
                 "intent": "Technical Support",
+                "mail_category": "technical_support",
+                "issue_category": "unknown_issue",
+                "reply_template_category": "manual_human_reply",
+                "classification_confidence": 0.0,
+                "classification_reason": f"AI error: {str(e)}",
+                "evidence": [],
+                "needs_human_review": True,
                 "urgency": "Medium",
                 "sentiment": "Neutral",
                 "key_issues": [f"Error: {str(e)}"],
-                "language": "en",
-                "email_type": "other"
+                "language": "en"
             }
 
     def analyze_email_intent(self, email_subject, email_body):
         # Legacy wrapper for backward compatibility during migration
         analysis = self.analyze_email_content(email_subject, email_body)
         intent = analysis.get("intent", "Other")
-        needs_reply = intent not in ["Spam", "Gratitude"]
+        needs_reply = intent not in ["Spam", "System Notification"]
         return {"needs_reply": needs_reply, "reason": f"Intent is {intent}"}
+
+    def _reset_generation_flags(self):
+        self.last_requires_human_review = False
+        self.last_human_review_reason = ""
+        self.last_human_review_label = ""
+
+    def _mark_human_review(self, reason, label="Knowledge Gap - Needs Human"):
+        self.last_requires_human_review = True
+        self.last_human_review_reason = reason or "Knowledge base did not contain a confirmed answer"
+        self.last_human_review_label = label or "Knowledge Gap - Needs Human"
+
+    def _build_internal_check_ack(self):
+        return (
+            "Dear customer,\n\n"
+            "Thank you for contacting MOOER Support.\n\n"
+            "We have received your question. I could not find a confirmed answer in our current support knowledge base, "
+            "so I have forwarded your case to our support team for further checking. We will confirm the details internally "
+            "and get back to you as soon as possible.\n\n"
+            "Best regards,\n"
+            "MOOER Support Team"
+        )
+
+    def _tool_result_requires_human_review(self, function_name, function_response):
+        text = str(function_response or "")
+        lowered = text.lower()
+        if function_name == "escalate_to_human" or "escalation_triggered" in lowered:
+            return text.replace("ESCALATION_TRIGGERED:", "").strip() or "AI requested human review"
+        if "knowledge_not_found" in lowered:
+            return text.replace("KNOWLEDGE_NOT_FOUND:", "").strip()
+        return ""
 
 
     def generate_email_draft(self, context, tools=None, tool_map=None):
@@ -241,10 +374,35 @@ Return ONLY a valid JSON object.
             return None
             
         try:
+            self._reset_generation_flags()
             prompt = self._construct_prompt(context)
             
             messages = [
-                {"role": "system", "content": """You are a professional, helpful, and empathetic customer support agent for MOOER Audio. Your goal is to write clear, accurate, and polite email responses in English.
+                {"role": "system", "content": """You are a concise, musician-friendly support agent for MOOER Audio. Your goal is to write clear, accurate, natural email responses in English for guitarists, bassists, producers, and live/recording musicians.
+
+MUSICIAN-FRIENDLY STYLE:
+- Keep the reply short by default: 80-150 words for ordinary cases. Go longer only when a confirmed technical procedure needs numbered steps.
+- Start with "Dear customer," and move quickly into the answer or next action.
+- Sound like a real support person who understands gear, firmware, presets, outputs, signal, editors, and live/recording use. Do not overdo slang.
+- Avoid generic AI support phrasing such as "I understand how frustrating...", "we are happy to assist...", "thank you for bringing this to our attention", and long empathy paragraphs.
+- For technical issues, prefer a short conclusion plus 3-5 actionable steps. Do not add background explanations unless they prevent a wrong action.
+- Use exactly one greeting and one sign-off. Do not add a second thank-you, greeting, or sign-off if the provided template already includes one.
+- Preserve approved template wording exactly when it appears in the template, but do not repeat it elsewhere in the draft.
+- Existing support templates may contain approved team wording like "Thank you for choosing our products—we truly appreciate your support!" or "Thanks again and have a nice day!" Keep that wording when it is part of the template, but do not duplicate it.
+
+CRITICAL PRODUCT KNOWLEDGE - MOOER CLOUD ACCOUNT:
+- Phone number registration currently only supports mainland China (+86) phone numbers.
+- Overseas users (non-China phone numbers) MUST register using EMAIL instead of phone number.
+- When a customer reports they cannot register due to country code issues, instruct them to use email registration.
+
+CRITICAL RULES FOR HARDWARE REPAIR / PARTS REPLACEMENT:
+1. Determine warranty status FIRST: ask for purchase date. If within 1 year → warranty repair is FREE but customer pays round-trip shipping. If expired → customer pays repair + labor + round-trip shipping.
+2. If a customer reports a hardware issue (screen not working, LCD backlight dead, broken display, battery failure, etc.) and PART PRICE INFO is available in the prompt below — QUOTE THE EXACT PRICE.
+3. Offer TWO paths:
+   a) Buy the replacement part (self-install): Quote price + ask for FULL SHIPPING ADDRESS to calculate shipping cost. DO NOT give a shipping quote without the address.
+   b) Send the unit to MOOER for repair: Customer pays round-trip shipping. If within warranty, repair is free. If out of warranty, customer also pays repair cost + labor. Total quoted after inspection.
+4. If the customer chooses option (a), you MUST collect: full name, street address, city, state/province, postal code, country, phone number.
+5. CRITICAL: Never promise a shipping cost until you have the complete address. Shipping cost varies by destination.
 
 CRITICAL RULES FOR TECHNICAL SUPPORT:
 1. DO NOT GUESS or hallucinate technical procedures.
@@ -252,12 +410,19 @@ CRITICAL RULES FOR TECHNICAL SUPPORT:
 3. If the user provides a model alias (e.g., 'F15i'), treat it as the official model name (e.g., 'F15i') when searching.
 4. If the manual search returns specific instructions (like "click connection switch" or "hold footswitches"), USE THEM EXACTLY.
 5. If the manual search results are empty or do not contain the answer:
-   - DO NOT give up or return an empty response.
-   - ADMIT that the specific manual instruction was not found.
-   - USE YOUR GENERAL TECHNICAL KNOWLEDGE to offer helpful, safe troubleshooting steps relevant to the user's issue (e.g., for MIDI issues: check channels, cables, USB host capability).
-   - Politely ask for more details if needed.
-   - NEVER default to generic "Please contact support" templates if you can offer a sensible technical suggestion first.
-   - IMPORTANT: You have **ONLY ONE CHANCE** to search. If the search result is not perfect, DO NOT say "Let me search again". Instead, use the partial info and your general knowledge to provide the best possible troubleshooting advice immediately.
+   - DO NOT invent steps, settings, prices, URLs, compatibility facts, or troubleshooting procedures.
+   - DO NOT use general product knowledge as a substitute for a confirmed support source.
+   - Use `escalate_to_human` or write only a brief acknowledgement that the case will be checked internally.
+   - The customer-facing acknowledgement must not include unverified technical advice.
+
+CRITICAL RULES FOR MOOER OFFICIAL DOWNLOADS:
+- Owner's manuals are found on each product's own page on the MOOER official website, inside that product page's Download section.
+- Do NOT tell customers to use a generic Support/Downloads page for owner's manuals.
+- Do NOT provide https://www.mooeraudio.com/pages/download as a direct manual link.
+- Firmware files, editors, drivers, and software installation packages are downloaded from https://www.mooeraudio.com/companyfile/Downloads-1.
+- Always distinguish owner's manuals from firmware/software downloads. Do not send a firmware/software package URL when the customer asks only for an owner's manual, and do not send product-page manual instructions when the customer asks for firmware, drivers, editors, or installation packages.
+- When using `check_official_downloads`, set download_type="owners_manual" for manual/user-guide requests and download_type="firmware_software" for firmware, editor, driver, app, or installer package requests. Use download_type="auto" only when the customer's request is ambiguous.
+- If you do not have the exact product-page URL, give navigation steps instead of inventing a URL.
 """},
                 {"role": "user", "content": prompt}
             ]
@@ -320,6 +485,10 @@ CRITICAL RULES FOR TECHNICAL SUPPORT:
                             function_response = f"Error executing tool: {str(e)}"
                     else:
                         function_response = f"Error: Tool {function_name} not found"
+
+                    human_review_reason = self._tool_result_requires_human_review(function_name, function_response)
+                    if human_review_reason:
+                        self._mark_human_review(human_review_reason)
                         
                     # Add tool result to conversation
                     messages.append({
@@ -328,6 +497,13 @@ CRITICAL RULES FOR TECHNICAL SUPPORT:
                         "name": function_name,
                         "content": str(function_response),
                     })
+
+                if self.last_requires_human_review:
+                    self.logger.info(
+                        "Knowledge lookup requires human review: %s",
+                        self.last_human_review_reason,
+                    )
+                    return self._build_internal_check_ack()
 
                 # Call the API again to get the final response
                 self.logger.info(f"Second API call - messages count: {len(messages)}")
@@ -413,6 +589,9 @@ CRITICAL RULES FOR TECHNICAL SUPPORT:
                 self.logger.error(f"AI response does not look like a customer email; rejecting draft: {generated_content[:200]}")
                 return ""
 
+            if generated_content:
+                self._log_style_warnings(generated_content)
+
             # DEBUG: Detect generic "need more info" responses
             if generated_content:
                 need_info_patterns = [
@@ -495,6 +674,50 @@ CRITICAL RULES FOR TECHNICAL SUPPORT:
 
         return True
 
+    def _log_style_warnings(self, text):
+        """Log musician-friendly style risks without rewriting approved templates."""
+        if not text:
+            return
+
+        lowered = text.lower()
+        body_text = re.sub(
+            r"^(dear customer,|hello,|hi,|hi there,|dear .{1,80},)\s*",
+            "",
+            text.strip(),
+            flags=re.IGNORECASE,
+        )
+        body_text = re.sub(
+            r"(best regards,|kind regards,|sincerely,|mooer support team)[\s\S]*$",
+            "",
+            body_text,
+            flags=re.IGNORECASE,
+        ).strip()
+        word_count = len(re.findall(r"\b[\w'-]+\b", body_text))
+
+        style_patterns = [
+            "i understand how frustrating",
+            "we are happy to assist",
+            "thank you for bringing this to our attention",
+            "please rest assured",
+            "we truly understand",
+            "we appreciate your patience and understanding",
+        ]
+        matched_patterns = [pattern for pattern in style_patterns if pattern in lowered]
+
+        greeting_count = len(re.findall(r"\b(dear customer|hello|hi there)\b", lowered))
+        signoff_count = len(re.findall(r"\b(best regards|kind regards|sincerely|mooer support team)\b", lowered))
+
+        if word_count > 180:
+            self.logger.warning("STYLE WARNING - draft may be too long for musician-friendly default: %s words", word_count)
+        if matched_patterns:
+            self.logger.warning("STYLE WARNING - canned support phrasing detected: %s", ", ".join(matched_patterns))
+        if greeting_count > 1 or signoff_count > 2:
+            self.logger.warning(
+                "STYLE WARNING - possible duplicate greeting/sign-off: greetings=%s signoffs=%s",
+                greeting_count,
+                signoff_count,
+            )
+
     def _strip_markdown(self, text):
         """Remove Markdown formatting from text"""
         # Remove bold/italic markers
@@ -546,9 +769,14 @@ CRITICAL RULES FOR TECHNICAL SUPPORT:
             r"^Based on my search",
             r"^After reviewing",
             # Tool result analysis - these are AI's internal reasoning after calling tools
+            r"^The manual search",
             r"^The manual search returned results",
             r"^The search returned results",
+            r"^The search did not",
+            r"^The manual did not",
             r"^Based on the search results",
+            r"^Based on my general knowledge",
+            r"^However, based on my general knowledge",
             r"^Let me use my general knowledge",
             r"^I'll use my general knowledge",
             r"^Using my general knowledge",
@@ -671,6 +899,9 @@ CRITICAL RULES FOR TECHNICAL SUPPORT:
         product_model = context.get('product_model', 'MOOER Product')
         manual_info = context.get('manual_info', '')
         template_content = context.get('template_content', '')
+        conversation_context = context.get('conversation_context', '')
+        warranty_info = context.get('warranty_info', '')
+        distributor_info = context.get('distributor_info', '')
         issue_category = context.get('issue_category', '')
         part_price_info = context.get('part_price_info', None)
         is_price_inquiry = context.get('is_price_inquiry', False)
@@ -678,9 +909,13 @@ CRITICAL RULES FOR TECHNICAL SUPPORT:
 
         # Build template section
         if template_content:
-            template_section = f"SUGGESTED TEMPLATE (Use as reference):\n{template_content}"
+            template_section = (
+                "SUGGESTED TEMPLATE (trusted support wording/facts; keep the core wording, "
+                "fill only what is needed, and do not expand it into a long email):\n"
+                f"{template_content}"
+            )
         else:
-            template_section = "SUGGESTED TEMPLATE: No specific template available - use your knowledge."
+            template_section = "SUGGESTED TEMPLATE: No specific template is available."
 
         # Build part price section
         price_section = ""
@@ -690,7 +925,8 @@ CRITICAL RULES FOR TECHNICAL SUPPORT:
                 if 'all_prices' in part_price_info:
                     # 多配件价格
                     prices_list = ", ".join([f"{k}: ${v}" for k, v in part_price_info['all_prices'].items()])
-                    price_section = f"\n\nPART PRICE INFO (For reference):\nAvailable prices for {product_model}: {prices_list}\n"
+                    price_section = f"\n\nPART PRICE INFO (OFFICIAL QUOTE - MUST use these exact prices):\nAvailable prices for {product_model}: {prices_list}\n"
+                    template_fill_instruction = "\nCRITICAL: You have OFFICIAL part prices above. QUOTE THE EXACT PRICE to the customer. DO NOT say \"we need to check with our internal team\" — the price IS above. State the price clearly.\n"
                 else:
                     # 单一配件价格
                     price_section = f"\n\nPART PRICE INFO (Official quote):\n{part_price_info['part_name']} for {product_model}: ${part_price_info['price']} {part_price_info['currency']}\n"
@@ -706,6 +942,9 @@ CONTEXT:
 - Product: {product_model}
 - Issue Category: {issue_category}
 {price_section}{template_fill_instruction}
+CONVERSATION HISTORY CONTEXT:
+{conversation_context if conversation_context else "No prior thread context was provided."}
+
 CUSTOMER'S QUESTION (Read carefully!):
 ---
 {customer_email}
@@ -714,19 +953,37 @@ CUSTOMER'S QUESTION (Read carefully!):
 MANUAL KNOWLEDGE (if available):
 {manual_info}
 
+MOOER WARRANTY POLICY (CRITICAL - Follow exactly):
+{warranty_info}
+
+MOOER DISTRIBUTOR LIST (Official - Use when customer asks where to buy):
+{distributor_info}
+
 {template_section}
 
 CRITICAL INSTRUCTIONS:
 1. READ THE CUSTOMER'S EMAIL ABOVE - Understand what they are asking!
+1a. Use CONVERSATION HISTORY CONTEXT to understand short follow-ups like "Any update?", "still not working", or "same issue". Do not repeat questions already answered in the timeline evidence.
 2. Start with "Dear customer,".
-3. If Manual Knowledge answers the question, explain it clearly in simple steps.
-4. If there is NO relevant Manual Knowledge, use your general knowledge about MOOER products to help.
-5. NEVER ask "please provide more details" - you already have their question in the email!
-6. If you cannot help, politely explain and offer best-effort troubleshooting.
-7. Sign off with "Best regards,
+3. Use only confirmed support sources provided in this prompt or returned by tools: manual knowledge, official policy, distributor data, official part prices, solved issue templates, or suggested templates.
+4. If the confirmed sources do not answer the customer's question, do not invent an answer and do not use general knowledge. Reply only that the case will be checked internally and the support team will get back to the customer.
+5. Do not ask for more details unless a confirmed policy or template specifically requires it.
+6. Do not provide best-effort troubleshooting unless it is supported by confirmed sources in this prompt or tool results.
+7. MUSICIAN-FRIENDLY STYLE:
+   - Default to 80-150 words, excluding greeting and sign-off.
+   - First paragraph should answer the issue or state the next action, not repeat generic thanks.
+   - Avoid canned AI phrases: "I understand how frustrating...", "we are happy to assist...", "thank you for bringing this to our attention", "please rest assured", and long apology/comfort paragraphs.
+   - For technical replies, use short numbered steps and practical gear language such as unit, editor, firmware, preset, output, signal, or USB connection when relevant.
+   - If a template sentence contains approved team wording, preserve it as written in the template instead of rephrasing or repeating it.
+   - Keep existing approved template wording if present, including team phrases like "Thank you for choosing our products—we truly appreciate your support!" and "Thanks again and have a nice day!"
+   - Do not duplicate a template greeting, thank-you sentence, or sign-off. The final email must contain only one greeting and one sign-off.
+8. Sign off with "Best regards,
 MOOER Support Team"
-8. Plain text only. No Markdown.
-9. Never output tool call markup, XML, JSON, DSML, or function-call text in the final email. The final answer must be only the customer-facing email body.
+9. Plain text only. No Markdown.
+10. Never output tool call markup, XML, JSON, DSML, or function-call text in the final email. The final answer must be only the customer-facing email body.
+11. WARRANTY RULE: MOOER warranty is exactly 1 year. If customer mentions a purchase date, calculate: purchase_date + 1 year. If that date is in the past, warranty IS EXPIRED. Do NOT say "likely still within warranty" unless you have verified the date. If expired, offer out-of-warranty paid repair service.
+12. DISTRIBUTOR RULE: When a customer asks "where can I buy", "where to purchase", or any question about availability in their region — CHECK the MOOER DISTRIBUTOR LIST above FIRST. If a distributor exists for their country, provide the distributor name, website, and contact info. If no distributor is listed for their country, suggest they check Amazon or contact us for the nearest distributor. NEVER say "we don't have this information" if the distributor IS listed above.
+13. NO FAKE PRICING: When you direct a customer to a distributor, DO NOT mention pricing at all. Do not say "we will check with our internal team for pricing" or "we'll get back to you with the price." The distributor handles pricing — tell the customer to contact the distributor for pricing and availability. Only mention pricing if the customer explicitly asks for a price quote AND there is no relevant distributor.
 """
         return prompt
 

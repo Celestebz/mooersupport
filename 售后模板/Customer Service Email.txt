@@ -55,7 +55,7 @@ Thanks again and have a nice day!
 
 -------------------------------------------------------------------------
 
-亚马逊平台保修期已过，但仍享受我司提供的保修服务
+亚马逊买了东西发现有问题且已过亚马逊30天退货期但仍在MOOER保修期内
 
 Dear customer,
 
@@ -67,6 +67,25 @@ Product issue:
 Serial Number：
 Shipping Info：
 Email：
+
+Thank you for your cooperation.
+
+-------------------------------------------------------------------------
+
+亚马逊和MOOER保修都已过期
+
+Dear customer,
+
+In order to assist you with an out-of-warranty repair, we kindly ask you to provide the following information:
+
+Amazon Order ID：
+Product: 
+Product issue: 
+Serial Number：
+Shipping Info：
+Email：
+
+Our support team will review your case and get back to you with further assistance.
 
 Thank you for your cooperation.
 
@@ -159,30 +178,6 @@ Connect your unit directly to the computer’s USB port (avoid external USB hubs
 Ensure the battery is at least 80% charged before updating.
 
 Sorry for the inconvenience, and thank you for your patience.
--------------------------------------------------------------------------
-
-固件更新(Prime P1/P2/M1/M2/S1 没有"SELECT" button)
-
-Dear customer,
-
-Thank you for choosing our products—we truly appreciate your support!
-
-Here are the instructions to update your firmware:
-
-1. Connect the processor to your computer using a USB cable.
-    (Important: Use a direct USB port—not an external hub.)
-2. Plug in the AC adapter.
-3. Hold the "SELECT" button and turn on the "POWER."
-4. The unit will enter "UPDATE MODE."
-5. Wait for the update to complete.
-
-Additional Tips:
-
-- If the update fails, try a different USB cable or computer.
-- Do not unplug the AC adapter or USB cable during the update.
-- If the update fails, repeat the process.
-
-Hope that it helps and have a nice day!
 
 -------------------------------------------------------------------------
 
@@ -192,10 +187,10 @@ Dear customer,
 
 Thank you for choosing our products—we truly appreciate your support!
 
-You can easily download the latest software for your device from our official website: 
-www.mooeraudio.com > Support > Downloads
+You can download firmware files, editors, drivers, and software installation packages from our official website:
+https://www.mooeraudio.com/companyfile/Downloads-1
 
-For the User Manual, please search for your product model on our website and look for the download link on the product page.
+For the owner's manual, please search for your product model on our website, open the product page, and use the Download section on that product page.
 
 在这里插入产品下载链接
 
@@ -266,18 +261,7 @@ Connect the unit directly to a USB 3.0 port on your computer (the blue port). Pl
 3. Fully charge the battery before updating
 Before attempting the update, charge the F15i Li using a 5V/2A power adapter for at least 4 hours. A low battery during a firmware update can cause the device to shut down mid-update and fail. Make sure the battery is well charged before proceeding.
 
-4. Retry the update
-- Disconnect the unit from Mooer Studio and turn it off completely.
-- Re-download the latest F15i Li firmware from our official website: www.mooeraudio.com > Support > Downloads
-- Re-enter Update Mode: With the unit powered off, hold the TOOLS button, then press and hold the POWER button until the screen shows the update mode indicator.
-- Reconnect the USB cable, open Mooer Studio, and retry the update.
-
-If the unit still does not respond after following these steps, please let us know and provide:
-- Your F15i Li serial number
-- A photo of the screen when the unit is powered on
-- The computer operating system and USB port type you are using
-
-We will arrange a repair or replacement for you as quickly as possible. We apologize for any inconvenience.
+If the unit still does not respond after following these steps, please let us know.
 
 Best regards,
 MOOER Audio Support Team
@@ -321,4 +305,26 @@ Once we receive your shipping details, we will send you the total amount includi
 
 Thanks again and have a nice day!
 
+-------------------------------------------------------------------------
 
+App / firmware version prompt guide - iAMP and MOOER Cloud
+
+Dear customer,
+
+Thank you for choosing our products. To help resolve the app or firmware version prompt, please follow the steps below according to your product and the message shown in the app.
+
+For iAMP series products, such as F15i, Hornet 15i/30i, SD10i/30i, etc.:
+
+1. If your app has already been updated to v1.6.0 but still shows "APP version too low", please uninstall the current app and then download and install it again from the official app store. After reinstalling, reconnect your device.
+
+2. If your app has not been updated to the latest version, please update it to v1.6.0 first. After the update is complete, reopen the app and try again.
+
+3. If the app shows "firmware version too low", this is a normal firmware update reminder. Please follow the in-app instructions to update your device firmware to the latest version.
+
+For MOOER Cloud related products, including GE100 Pro and GS1000:
+
+If your GE100 Pro firmware is already V1.3.2, or your GS1000 firmware is already V1.2.7, but the app still shows "firmware version too low", please uninstall the current app, reinstall it from the official app store, log in again, and reconnect your device.
+
+If the issue still remains after these steps, please send us your device model, firmware version, app version, and a screenshot of the message shown in the app. We will help check it further.
+
+Thanks again and have a nice day!

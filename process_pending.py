@@ -26,11 +26,10 @@ def process_pending_emails(limit=50):
     ai = AIHandler()  # 用于分析邮件
     content_extractor = ContentExtractor()  # 用于提取邮件信息
 
-    # 初始化 ResponseGenerator
-    templates_path = os.path.join(os.getcwd(), "售后模板", "Customer Service Email.txt")
+    # 初始化 ResponseGenerator（模板已迁移至数据库）
     pdf_reader_path = os.path.join(os.getcwd(), "pdf_reader.py")
     product_manuals_path = os.path.join(os.getcwd(), "MOOER产品说明书")
-    generator = ResponseGenerator(templates_path, pdf_reader_path, product_manuals_path)
+    generator = ResponseGenerator(None, pdf_reader_path, product_manuals_path)
 
     # 连接IMAP
     imap.connect_imap()
@@ -78,6 +77,7 @@ def process_pending_emails(limit=50):
             email_info = content_extractor.extract_info(email_content, sender_email=sender)
             email_info['subject'] = subject
             email_info['body'] = body
+            email_info['conversation_context'] = db.get_email_thread_context(email_id, limit=20)
 
             intent = email_info.get("problem_category", "Technical Support")
             logger.info(f"  分析结果: intent={intent}, product={email_info.get('product_model', 'Unknown')}")

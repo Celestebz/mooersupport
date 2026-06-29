@@ -10,6 +10,7 @@ This script:
 
 import logging
 import os
+import re
 import schedule
 import time
 from datetime import datetime
@@ -45,13 +46,12 @@ class EmailAutomation:
         # Initialize Database
         self.db = DatabaseHandler()
         
-        # Set up paths for response generator
-        templates_path = os.path.join(os.getcwd(), "售后模板", "Customer Service Email.txt")
+        # 模板已迁移至数据库
         pdf_reader_path = os.path.join(os.getcwd(), "pdf_reader.py")
         product_manuals_path = os.path.join(os.getcwd(), "MOOER产品说明书")
-        
+
         self.response_generator = ResponseGenerator(
-            templates_path,
+            None,
             pdf_reader_path,
             product_manuals_path
         )
@@ -72,6 +72,7 @@ class EmailAutomation:
         text = f"{reasoning or ''} {label or ''}".lower()
         final_markers = (
             "non-product",
+            "human review",
             "being processed",
             "known distributor",
             "distributor",
@@ -85,15 +86,24 @@ class EmailAutomation:
         )
         return any(marker in text for marker in final_markers)
 
-    def _is_no_reply_intent(self, intent):
-        """Return True for mail that should not receive an automatic reply."""
-        return intent in {"Spam", "System Notification", "Gratitude"}
+    def _is_being_processed(self, email, cc_list):
+        """Detect internal team emails that are being forwarded/CC'd for info.
+        These should not receive an auto-reply."""
+        if not cc_list:
+            return False
 
-    def _route_non_product_status(self, intent):
-        """Route non-product mail into either no-reply or human-review."""
-        if self._is_no_reply_intent(intent):
-            return "no_reply_needed", f"AI Intent: {intent}", f"AI Intent: {intent}"
-        return "human_review", "Non-product email - requires human attention", "Non-Product - Human"
+        sender = email.get('sender', '').lower()
+        cc_lower = [c.lower() for c in cc_list]
+
+        # Internal MOOER domain in CC indicates internal discussion
+        has_internal_cc = any('mooeraudio.com' in c for c in cc_lower)
+        # Internal MOOER sender forwarding to support
+        is_internal_sender = 'mooeraudio.com' in sender
+        # Subject indicates forward
+        subject = email.get('subject', '').lower()
+        is_forward = subject.startswith(('fwd:', 'fw:', '转发'))
+
+        return (has_internal_cc and is_internal_sender) or (is_internal_sender and is_forward)
 
     def _acquire_run_lock(self):
         """Prevent concurrent bot runs from stepping on the same SQLite DB."""
@@ -103,14 +113,7 @@ class EmailAutomation:
                 os.makedirs(lock_dir)
 
             if os.path.exists(self.run_lock_path):
-                age_seconds = time.time() - os.path.getmtime(self.run_lock_path)
-                if age_seconds < 3600:
-                    self.logger.warning(f"Automation lock file exists, skipping run: {self.run_lock_path}")
-                    return False
-                try:
-                    os.remove(self.run_lock_path)
-                except Exception:
-                    self.logger.warning("Stale lock file could not be removed; skipping run")
+                if not self._clear_stale_run_lock_if_safe():
                     return False
 
             self._run_lock_fd = os.open(self.run_lock_path, os.O_CREAT | os.O_EXCL | os.O_RDWR)
@@ -122,6 +125,63 @@ class EmailAutomation:
             return False
         except Exception as e:
             self.logger.error(f"Failed to acquire automation lock: {e}")
+            return False
+
+    def _read_run_lock_pid(self):
+        """Return the PID recorded in the lock file, or None if unreadable."""
+        try:
+            with open(self.run_lock_path, "r", encoding="utf-8") as lock_file:
+                for line in lock_file:
+                    match = re.match(r"\s*pid\s*=\s*(\d+)\s*$", line)
+                    if match:
+                        return int(match.group(1))
+        except Exception as e:
+            self.logger.warning(f"Could not read automation lock file; falling back to age check: {e}")
+        return None
+
+    def _is_pid_running(self, pid):
+        """Return True if a process with pid appears to still be running."""
+        if not pid or pid <= 0:
+            return False
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+        except Exception as e:
+            self.logger.warning(f"Could not check lock PID {pid}; falling back to age check: {e}")
+            return None
+
+    def _clear_stale_run_lock_if_safe(self):
+        """Remove dead/stale lock files. Return True when a new lock can be tried."""
+        pid = self._read_run_lock_pid()
+        if pid:
+            is_running = self._is_pid_running(pid)
+            if is_running is True:
+                self.logger.warning(
+                    f"Automation lock is held by active process {pid}; skipping run: {self.run_lock_path}"
+                )
+                return False
+            if is_running is False:
+                try:
+                    os.remove(self.run_lock_path)
+                    self.logger.warning(f"Removed stale automation lock for dead process {pid}: {self.run_lock_path}")
+                    return True
+                except Exception as e:
+                    self.logger.warning(f"Dead-process lock could not be removed; skipping run: {e}")
+                    return False
+
+        self.logger.warning("Automation lock file has no usable PID; falling back to age check")
+        age_seconds = time.time() - os.path.getmtime(self.run_lock_path)
+        if age_seconds < 3600:
+            self.logger.warning(f"Automation lock file exists and is not stale yet; skipping run: {self.run_lock_path}")
+            return False
+        try:
+            os.remove(self.run_lock_path)
+            self.logger.warning(f"Removed stale automation lock older than 1 hour: {self.run_lock_path}")
+            return True
+        except Exception as e:
+            self.logger.warning(f"Stale lock file could not be removed; skipping run: {e}")
             return False
 
     def _release_run_lock(self):
@@ -142,6 +202,9 @@ class EmailAutomation:
         text = f"{email.get('subject', '')}\n{email.get('sender', '')}\n{email.get('body', '')[:1200]}".lower()
         sender = (email.get('sender') or '').lower()
         subject = (email.get('subject') or '').lower()
+
+        if "@promusicals.com" in sender:
+            return "no_reply_needed", "Known distributor domain: promusicals.com", "Distributor - No Reply"
 
         bounce_markers = (
             'undelivered mail returned to sender',
@@ -182,6 +245,173 @@ class EmailAutomation:
 
         return None
 
+    def _precheck_email_flags(self, email, cc_list=None):
+        """Collect deterministic risk flags before AI classification.
+
+        These flags are evidence and guardrails only. They must not directly
+        decide that a customer gets no reply.
+        """
+        text = f"{email.get('subject', '')}\n{email.get('sender', '')}\n{email.get('body', '')[:1200]}".lower()
+        sender = (email.get('sender') or '').lower()
+        subject = (email.get('subject') or '').lower()
+        cc_list = cc_list or []
+        flags = []
+
+        def add_flag(code, reason, confidence=0.8):
+            flags.append({
+                "code": code,
+                "reason": reason,
+                "confidence": confidence,
+            })
+
+        bounce_markers = (
+            'undelivered mail returned to sender',
+            'delivery status notification',
+            'mail delivery failed',
+            'failure notice',
+            'returned mail',
+            'postmaster',
+            'mailer-daemon',
+        )
+        if any(marker in text for marker in bounce_markers):
+            add_flag("suspected_system_notification", "System bounce/delivery notification", 0.95)
+
+        marketing_markers = (
+            'seo',
+            'backlink',
+            'guest post',
+            'sponsored post',
+            'content removal',
+            'copyright claim',
+            'collaboration proposal',
+            'influencer',
+            'partnership opportunity',
+            'secure your hotel',
+            'booth',
+            'trade show',
+            'newsletter',
+            'unsubscribe',
+        )
+        if any(marker in text for marker in marketing_markers):
+            add_flag("suspected_marketing_or_spam", "Marketing/partnership/non-support keywords", 0.75)
+
+        if sender.endswith('@mooeraudio.com>') or '@mooeraudio.com' in sender:
+            if subject.startswith(('fwd:', 'fw:')):
+                add_flag("suspected_internal_forward", "Internal MOOER forwarded email", 0.9)
+            else:
+                add_flag("suspected_internal_sender", "Internal MOOER sender", 0.85)
+
+        if self._is_being_processed(email, cc_list):
+            add_flag("suspected_being_processed", "Internal CC/forward suggests team handling", 0.85)
+
+        known_distributors = (
+            "@promusicals.com",
+            "sales16@mooeraudio.com",
+            "sales@mooeraudio.com",
+            "support@mooeraudio.com",
+            "sales@stringsandthings.co.uk",
+            "repairs@andertons.co.uk",
+        )
+        if any(dist in sender for dist in known_distributors):
+            add_flag("suspected_distributor", f"Known distributor/internal sender: {email.get('sender', '')}", 0.85)
+
+        auto_reply_markers = (
+            "automatic reply",
+            "auto-reply",
+            "out of office",
+            "out-of-office",
+            "vacation response",
+            "do not reply",
+        )
+        if any(marker in text for marker in auto_reply_markers):
+            add_flag("suspected_auto_reply", "Automatic reply markers found", 0.8)
+
+        if not flags:
+            return {"flags": [], "reason": "", "max_confidence": 0.0}
+
+        return {
+            "flags": flags,
+            "reason": "; ".join(flag["reason"] for flag in flags),
+            "max_confidence": max(flag["confidence"] for flag in flags),
+        }
+
+    def _safe_confidence(self, value):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _safe_bool(self, value):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"true", "1", "yes", "y"}
+        return bool(value)
+
+    def _classification_route(self, email_info, precheck):
+        """Route using AI classification first and precheck flags as guardrails."""
+        intent = email_info.get("problem_category") or "Other"
+        mail_category = email_info.get("mail_category") or "unclassified"
+        issue_category = email_info.get("issue_category") or "unknown_issue"
+        confidence = self._safe_confidence(email_info.get("classification_confidence"))
+        needs_review = self._safe_bool(email_info.get("needs_human_review"))
+        flags = precheck.get("flags", []) if precheck else []
+        flag_codes = {flag.get("code") for flag in flags}
+
+        product_intents = {"Technical Support", "Firmware Update", "Warranty/Repair"}
+        product_mail_categories = {
+            "technical_support",
+            "firmware_update",
+            "warranty_repair",
+            "parts_purchase",
+            "registration_account",
+        }
+        nonreply_intents = {"Spam", "System Notification"}
+        nonreply_mail_categories = {"spam_irrelevant", "system_notification"}
+        source_risk_flags = {
+            "suspected_internal_sender",
+            "suspected_internal_forward",
+            "suspected_being_processed",
+            "suspected_distributor",
+            "suspected_auto_reply",
+        }
+
+        is_product_issue = intent in product_intents or mail_category in product_mail_categories
+        is_ai_no_reply = intent in nonreply_intents or mail_category in nonreply_mail_categories
+        low_confidence = confidence < 0.65
+
+        reason_parts = [
+            f"AI intent={intent}",
+            f"mail_category={mail_category}",
+            f"issue_category={issue_category}",
+            f"confidence={confidence:.2f}",
+        ]
+        if precheck and precheck.get("reason"):
+            reason_parts.append(f"precheck={precheck.get('reason')}")
+        if email_info.get("classification_reason"):
+            reason_parts.append(f"AI reason={email_info.get('classification_reason')}")
+
+        if is_ai_no_reply:
+            allowed_no_reply_flags = {"suspected_system_notification", "suspected_marketing_or_spam"}
+            if low_confidence or needs_review or (flag_codes - allowed_no_reply_flags):
+                return "human_review", "AI No-Reply Conflict - Human", "needs_review", "; ".join(reason_parts)
+            return "no_reply_needed", f"AI Intent: {intent}", "ignored", "; ".join(reason_parts)
+
+        if is_product_issue:
+            if flag_codes & source_risk_flags:
+                return "human_review", "AI Product Issue + Source Risk", "needs_review", "; ".join(reason_parts)
+            if low_confidence or needs_review:
+                return "human_review", "Low Confidence - Human", "needs_review", "; ".join(reason_parts)
+            return "draft", "AI Product Issue", "auto_confirmed", "; ".join(reason_parts)
+
+        if intent == "Gratitude" or mail_category == "customer_followup_ack":
+            return "human_review", "Customer Follow-up - Human", "needs_review", "; ".join(reason_parts)
+
+        if low_confidence or needs_review:
+            return "human_review", "Low Confidence - Human", "needs_review", "; ".join(reason_parts)
+
+        return "human_review", "Non-Product - Human", "needs_review", "; ".join(reason_parts)
+
     def _is_invalid_draft_content(self, body):
         """Reject internal model/tool output before saving a customer draft."""
         if not body:
@@ -202,9 +432,81 @@ class EmailAutomation:
         )
         return any(marker in lowered for marker in invalid_markers)
 
+    def _build_internal_check_acknowledgement(self):
+        return (
+            "Dear customer,\n\n"
+            "Thank you for contacting MOOER Support.\n\n"
+            "We have received your question. I could not find a confirmed answer in our current support knowledge base, "
+            "so I have forwarded your case to our support team for further checking. We will confirm the details internally "
+            "and get back to you as soon as possible.\n\n"
+            "Best regards,\n"
+            "MOOER Support Team"
+        )
+
+    def _issue_slug(self, value, fallback="unknown"):
+        text = str(value or "").lower()
+        text = re.sub(r"[^a-z0-9]+", "_", text).strip("_")
+        return text[:80] or fallback
+
+    def _knowledge_gap_title(self, email, email_info):
+        product = (email_info.get("product_model") or "Unknown product").strip()
+        keywords = email_info.get("keywords") or []
+        if isinstance(keywords, str):
+            keywords = [keywords]
+        summary = "; ".join(str(item).strip() for item in keywords[:2] if str(item).strip())
+        if not summary:
+            summary = re.sub(r"\s+", " ", email.get("subject") or "").strip()
+        if not summary:
+            summary = "Unanswered support question"
+        return f"Knowledge gap: {product} - {summary}"[:180]
+
+    def _record_knowledge_gap_issue(self, email_id, email, email_info, reason):
+        """Create/update an issue bucket for a KB miss and link this email."""
+        product = (email_info.get("product_model") or "Unknown").strip() or "Unknown"
+        issue_key = (
+            email_info.get("issue_fingerprint")
+            or email_info.get("issue_category")
+            or email.get("subject")
+            or email_id
+        )
+        if str(issue_key).strip().lower() in {"unknown_issue", "unclassified", "none"}:
+            issue_key = email.get("subject") or email_id
+
+        signature = "knowledge_gap_{}_{}".format(
+            self._issue_slug(product),
+            self._issue_slug(issue_key, fallback=str(email_id)),
+        )
+        issue_id = self.db.upsert_support_issue({
+            "product_model": product,
+            "issue_title": self._knowledge_gap_title(email, email_info),
+            "issue_category": "knowledge_gap",
+            "issue_signature": signature,
+            "status": "new_detected",
+            "priority": "Medium",
+            "rnd_status": "needs_review",
+            "rnd_notes": reason or "Knowledge base did not contain a confirmed answer",
+        })
+        if issue_id:
+            self.db.link_emails_to_issue(
+                issue_id,
+                [{
+                    "id": email_id,
+                    "sender": email.get("sender"),
+                    "received_at": email.get("received_at") or email.get("date"),
+                }],
+                confidence=0.75,
+                matched_by="knowledge_gap_escalation",
+            )
+        return issue_id
+
     def _is_rnd_update_bug(self, email, email_info, clean_body):
-        """Detect GE1000/GS1000 update bug reports that should go to R&D."""
+        """Detect unresolved GE1000/GS1000 update bug reports that should go to R&D."""
         import re
+
+        product = (email_info.get('product_model') or '').strip().upper()
+        issue_category = (email_info.get('issue_category') or '').strip().lower()
+        if product == 'GS1000' and issue_category == 'gs1000_balance_output_issue':
+            return False
 
         subject = email.get('subject', '') or ''
         model = email_info.get('product_model') or ''
@@ -251,56 +553,40 @@ class EmailAutomation:
         return email_info.get('product_model') or 'GE1000/GS1000'
 
     def _build_rnd_forward_body(self, email, email_info, clean_body, product_model):
-        """Build the internal draft for Leo/R&D."""
-        attachments = email.get('attachments') or []
-        if attachments:
-            attachment_lines = []
-            for item in attachments:
-                if isinstance(item, dict):
-                    filename = item.get('filename', 'Unknown attachment')
-                    size = item.get('size', '')
-                    attachment_lines.append(f"- {filename} {f'({size})' if size else ''}".strip())
-                else:
-                    attachment_lines.append(f"- {item}")
-            attachments_text = '\n'.join(attachment_lines)
-        else:
-            attachments_text = 'None'
+        """Build the internal forward body for Leo/R&D.
 
+        Returns a short intro only. The original email content and attachments
+        are handled by save_draft in forward mode (original_html + attachments).
+        """
         key_issues = email_info.get('keywords') or []
         if key_issues:
             summary = '; '.join(str(item) for item in key_issues)
         else:
-            summary = 'Customer reported an update/firmware bug. Please review the original email below.'
+            summary = 'update/firmware-related bug'
+
+        sender = email.get('sender', 'Unknown')
+        subject = email.get('subject', '')
 
         return f"""Hi Leo,
 
-This customer reported an update/firmware-related bug for {product_model}. Please help check whether this is a known issue or needs R&D follow-up.
+Forwarding a bug report from a {product_model} customer ({sender}):
 
-Customer:
-{email.get('sender', '')}
+  Subject: {subject}
+  Issue: {summary}
 
-Subject:
-{email.get('subject', '')}
+Please check if this is a known issue or needs an R&D follow-up. Original email below.
 
-Date:
-{email.get('date', '')}
+Thanks,
+MOOER Support
 
-Product:
-{product_model}
+---------- Forwarded message ---------
+From: {sender}
+Date: {email.get('date', '')}
+Subject: {subject}
+To: support@mooeraudio.com
 
-Issue summary:
-{summary}
+{clean_body}"""
 
-Attachments:
-{attachments_text}
-
-Original customer email:
----
-{clean_body}
----
-
-Best regards,
-MOOER Support Bot"""
 
     def _build_rnd_customer_reply(self, product_model):
         """Build the customer acknowledgement draft for R&D-forwarded cases."""
@@ -316,6 +602,22 @@ We will get back to you as soon as we receive further feedback from the technica
 
 Best regards,
 MOOER Support Team"""
+
+    def _issue_template_citation(self, issue):
+        """Build internal citation metadata for drafts created from a solved issue."""
+        if not issue:
+            return []
+        issue_id = issue.get("id")
+        title = issue.get("issue_title") or issue.get("title") or f"Issue #{issue_id}"
+        excerpt = issue.get("final_reply_template") or issue.get("solution_summary") or ""
+        return [{
+            "knowledge_type": "issue_solution",
+            "title": title,
+            "source": f"support_issues#{issue_id}" if issue_id else "support_issues",
+            "section": "final_reply_template",
+            "chunk_id": None,
+            "excerpt": excerpt[:320],
+        }]
 
     def _sync_email_status(self):
         """Sync IMAP unread status with database status"""
@@ -477,6 +779,9 @@ MOOER Support Team"""
                                 'subject': email['subject'],
                                 'body': email['body'],
                                 'date': email.get('date'),
+                                'message_id': email.get('message_id', ''),
+                                'in_reply_to': email.get('in_reply_to', ''),
+                                'references': email.get('references', ''),
                                 'attachments': email.get('attachments', [])
                             })
                         self.db.update_email_status(
@@ -501,6 +806,9 @@ MOOER Support Team"""
                         'subject': email['subject'],
                         'body': email['body'],
                         'date': email.get('date'),
+                        'message_id': email.get('message_id', ''),
+                        'in_reply_to': email.get('in_reply_to', ''),
+                        'references': email.get('references', ''),
                         'attachments': email.get('attachments', [])
                     })
                 self.db.update_email_status(email_id, 'processing', increment_attempts=True)
@@ -510,82 +818,122 @@ MOOER Support Team"""
                     clean_body = self.content_extractor.clean_email_content(email['body'])
                     email_content = f"Subject: {email['subject']}\n\n{clean_body}"
 
-                    pre_classification = self._pre_classify_email(email)
-                    if pre_classification:
-                        status, reasoning, label = pre_classification
-                        self.logger.info(f"Pre-classified email: {email['subject']} -> {status} ({reasoning})")
-                        self.imap_handler.add_label(email_id, label)
-                        self.db.update_email_status(email_id, status, reasoning=reasoning, label=label)
-                        self.imap_handler.mark_as_read(email_id)
-                        continue
-
                     # Extract relevant information using AI (pass cc_list and sender for smarter classification)
                     cc_list = email.get('cc_list', [])
+                    precheck = self._precheck_email_flags(email, cc_list=cc_list)
                     email_info = self.content_extractor.extract_info(email_content, cc_list=cc_list, sender_email=email['sender'])
                     email_info['subject'] = email['subject']
                     email_info['body'] = clean_body
+                    email_info['attachments'] = email.get('attachments', [])
+                    email_info['precheck_flags'] = precheck.get('flags', [])
+                    email_info['precheck_reason'] = precheck.get('reason', '')
+
+                    route_status, route_label, classification_status, route_reason = self._classification_route(email_info, precheck)
 
                     # Log AI Analysis Result to DB
                     intent = email_info.get("problem_category", "Technical Support")
-                    email_type = email_info.get("email_type", "other")
                     self.db.update_email_ai_analysis(email_id, {
                         'intent': intent,
                         'sentiment': email_info.get('sentiment'),
-                        'product_model': email_info.get('product_model')
+                        'product_model': email_info.get('product_model'),
+                        'mail_category': email_info.get('mail_category'),
+                        'issue_category': email_info.get('issue_category'),
+                        'reply_template_category': email_info.get('reply_template_category'),
+                        'classification_confidence': email_info.get('classification_confidence'),
+                        'classification_status': classification_status,
+                        'classification_reason': route_reason,
+                        'classification_evidence': email_info.get('classification_evidence', []),
+                        'issue_facts': email_info.get('issue_facts'),
+                        'issue_fingerprint': email_info.get('issue_fingerprint'),
+                        'precheck_flags': precheck.get('flags', []),
+                        'precheck_reason': precheck.get('reason', ''),
                     })
 
-                    self.logger.info(f"AI Classification - Model: {email_info.get('product_model')}, Intent: {intent}, Email Type: {email_type}, Sentiment: {email_info.get('sentiment')}")
+                    self.logger.info(
+                        "AI Classification - Model: %s, Intent: %s, Mail: %s, Issue: %s, Route: %s",
+                        email_info.get('product_model'),
+                        intent,
+                        email_info.get('mail_category'),
+                        email_info.get('issue_category'),
+                        route_status,
+                    )
 
-                    # Check if email should be skipped based on AI email_type
-                    should_skip = False
+                    thread_context = self.db.get_email_thread_context(email_id, limit=20) or {}
+                    email_info['conversation_context'] = thread_context
 
-                    # 0. AI-Driven Email Type Classification (NEW)
-                    if email_type == "being_processed":
-                        self.logger.info(f"Detected email being processed: {email['subject']} from {email['sender']}")
-                        self.imap_handler.add_label(email_id, 'Being processed')
-                        self.db.update_email_status(email_id, 'no_reply_needed', reasoning="Email being processed - no reply needed", label="Being processed")
+                    if route_status in {"no_reply_needed", "human_review"}:
+                        self.logger.info(f"Routing email: {email['subject']} -> {route_status} ({route_reason})")
+                        self.imap_handler.add_label(email_id, route_label)
+                        self.db.update_email_status(email_id, route_status, reasoning=route_reason, label=route_label)
                         self.imap_handler.mark_as_read(email_id)
                         continue
 
-                    if email_type == "non_product":
-                        self.logger.info(f"Detected non-product email: {email['subject']} from {email['sender']}")
-                        status, reasoning, label = self._route_non_product_status(intent)
-                        self.imap_handler.add_label(email_id, label)
-                        self.db.update_email_status(email_id, status, reasoning=reasoning, label=label)
-                        self.imap_handler.mark_as_read(email_id)
-                        continue
+                    solved_issue = self.db.find_issue_final_reply_template(
+                        email_info.get('product_model'),
+                        email_info.get('issue_category'),
+                        email_info.get('issue_fingerprint')
+                    )
+                    if not solved_issue:
+                        linked_issue = thread_context.get('linked_issue') if isinstance(thread_context, dict) else None
+                        if linked_issue and linked_issue.get('final_reply_template'):
+                            solved_issue = linked_issue
+                    if solved_issue:
+                        response_body = solved_issue.get('final_reply_template') or ''
+                        target_address_field = email.get('reply_to') if email.get('reply_to') else email.get('sender', '')
+                        recipient = self._extract_email_address(target_address_field)
 
-                    # Check for known distributors/Non-customer emails
-                    known_distributors = [
-                        "support@promusicals.com",
-                        "sales16@mooeraudio.com",  # MOOER internal sales
-                        "sales@mooeraudio.com",
-                        "support@mooeraudio.com",
-                        "sales@stringsandthings.co.uk",
-                        "repairs@andertons.co.uk"
-                    ]
-                    sender_lower = email.get('sender', '').lower()
+                        if recipient and response_body:
+                            success = self.imap_handler.save_draft(
+                                recipient=recipient,
+                                subject=email['subject'],
+                                body=response_body,
+                                original_msg_id=email.get('message_id'),
+                                original_html=email.get('html_body'),
+                                original_sender=email.get('sender'),
+                                original_date=email.get('date')
+                            )
+                            if success:
+                                self.db.link_emails_to_issue(
+                                    solved_issue.get('id'),
+                                    [{
+                                        'id': email_id,
+                                        'sender': email.get('sender'),
+                                        'received_at': email.get('date'),
+                                    }],
+                                    confidence=0.95,
+                                    matched_by="final_reply_template"
+                                )
+                                self.imap_handler.mark_as_read(email_id)
+                                self.db.update_email_status(
+                                    email_id,
+                                    'drafted',
+                                    draft_body=response_body,
+                                    reasoning=f"Used final reply template from issue #{solved_issue.get('id')}",
+                                    label="Issue Final Template",
+                                    knowledge_citations=self._issue_template_citation(solved_issue)
+                                )
+                                self.logger.info(
+                                    "Used final reply template from issue #%s for email %s",
+                                    solved_issue.get('id'),
+                                    email_id,
+                                )
+                            else:
+                                self.logger.error(f"Failed to save issue-template draft for email: {email['subject']}")
+                            continue
+                        if not recipient:
+                            self.logger.error(f"Could not extract recipient email from: {target_address_field}")
+                            self.imap_handler.add_label(email_id, 'Parse Failed - Needs Human')
+                            self.db.update_email_status(email_id, 'human_review', reasoning="Invalid recipient address", label="Parse Failed")
+                            self.imap_handler.mark_as_read(email_id)
+                            continue
 
-                    if any(dist in sender_lower for dist in known_distributors):
-                        self.logger.info(f"Skipping email from known distributor: {email['sender']}")
-                        self.imap_handler.add_label(email_id, 'Distributor - No Reply')
-                        self.db.update_email_status(email_id, 'no_reply_needed', reasoning=f"Known distributor: {email['sender']}", label="Distributor - No Reply")
-                        self.imap_handler.mark_as_read(email_id)
-                        continue
+                    # 1. No-reply intents → skip
+                    # 2. Human-review intents → skip, needs human
+                    # 3. Product intents (Technical Support, Warranty/Repair, Firmware Update) → fall through to draft generation
 
-                    # 1. AI-Driven Intent Triage (Spam, Gratitude, etc.)
-                    if self._is_no_reply_intent(intent):
-                        should_skip = True
-                        self.logger.info(f"Skipping email based on AI Intent: {intent}")
-                        self.db.update_email_status(email_id, 'no_reply_needed', reasoning=f"AI Intent: {intent}", label=f"AI Intent: {intent}")
-
-                    if should_skip:
-                        # Mark as read but don't generate response
-                        self.imap_handler.mark_as_read(email_id)
-                        self.logger.info(f"Marked email as read but skipped response: {email['subject']}")
-                        continue
-
-                    # 2. R&D forwarding rule for GE1000/GS1000 update bugs.
+                    # 2. R&D forwarding rule for unresolved GE1000/GS1000 update bugs.
+                    # Known issues with a final_reply_template are handled above
+                    # and should not be forwarded one by one anymore.
                     # This creates two drafts: one internal forward to Leo and
                     # one customer acknowledgement. Nothing is auto-sent.
                     if self._is_rnd_update_bug(email, email_info, clean_body):
@@ -604,11 +952,19 @@ MOOER Support Team"""
                         forward_body = self._build_rnd_forward_body(email, email_info, clean_body, product_model)
                         customer_reply = self._build_rnd_customer_reply(product_model)
 
+                        # Download original attachments to forward to Leo
+                        rnd_attachments = self.imap_handler.download_attachments(email_id)
+
                         forward_success = self.imap_handler.save_draft(
                             recipient=self.rnd_forward_email,
                             subject=forward_subject,
                             body=forward_body,
-                            reply_mode=False
+                            original_msg_id=email.get('message_id'),
+                            original_html=email.get('html_body'),
+                            original_sender=email.get('sender'),
+                            original_date=email.get('date'),
+                            reply_mode=False,
+                            attachments=rnd_attachments
                         )
                         reply_success = self.imap_handler.save_draft(
                             recipient=recipient,
@@ -642,6 +998,54 @@ MOOER Support Team"""
                     # Extract recipient email from Reply-To (preferred) or Sender field
                     target_address_field = email.get('reply_to') if email.get('reply_to') else email.get('sender', '')
                     recipient = self._extract_email_address(target_address_field)
+
+                    if self.response_generator.last_human_review_required:
+                        label = self.response_generator.last_human_review_label or "Knowledge Gap - Needs Human"
+                        reason = (
+                            self.response_generator.last_human_review_reason
+                            or "Knowledge base did not contain a confirmed answer"
+                        )
+                        if self._is_invalid_draft_content(response_body):
+                            response_body = self._build_internal_check_acknowledgement()
+
+                        if not recipient:
+                            self.logger.error(f"Could not extract recipient email from: {target_address_field}")
+                            self.imap_handler.add_label(email_id, 'Parse Failed - Needs Human')
+                            self.db.update_email_status(email_id, 'human_review', reasoning="Invalid recipient address", label="Parse Failed")
+                            self.imap_handler.mark_as_read(email_id)
+                            continue
+
+                        issue_id = self._record_knowledge_gap_issue(email_id, email, email_info, reason)
+                        if issue_id:
+                            reason = f"{reason}; linked to issue #{issue_id}"
+
+                        success = self.imap_handler.save_draft(
+                            recipient=recipient,
+                            subject=email['subject'],
+                            body=response_body,
+                            original_msg_id=email.get('message_id'),
+                            original_html=email.get('html_body'),
+                            original_sender=email.get('sender'),
+                            original_date=email.get('date')
+                        )
+                        if not success:
+                            self.logger.error(f"Failed to save knowledge-gap acknowledgement draft for: {email['subject']}")
+                        self.imap_handler.add_label(email_id, label)
+                        self.imap_handler.mark_as_read(email_id)
+                        self.db.update_email_status(
+                            email_id,
+                            'human_review',
+                            draft_body=response_body,
+                            reasoning=reason,
+                            label=label,
+                            knowledge_citations=self.response_generator.last_knowledge_citations
+                        )
+                        self.db.log_event(
+                            "INFO",
+                            f"Knowledge gap routed to human review for: {email['subject']}",
+                            "automation"
+                        )
+                        continue
                     
                     # Save as draft
                     if self._is_invalid_draft_content(response_body):
@@ -671,7 +1075,14 @@ MOOER Support Team"""
                             # Mark email as read
                             self.imap_handler.mark_as_read(email_id)
                             # Update DB status
-                            self.db.update_email_status(email_id, 'drafted', draft_body=response_body)
+                            self.db.update_email_status(
+                                email_id,
+                                'drafted',
+                                draft_body=response_body,
+                                reasoning=route_reason,
+                                label=route_label,
+                                knowledge_citations=self.response_generator.last_knowledge_citations
+                            )
                             self.logger.info(f"Successfully drafted email: {email['subject']}")
                             self.db.log_event("INFO", f"Drafted response for: {email['subject']}", "automation")
                         else:
@@ -728,6 +1139,156 @@ MOOER Support Team"""
         finally:
             self._release_run_lock()
     
+    def regenerate_draft(self, email_id):
+        """从 DB 重新生成指定邮件的 AI 草稿，不依赖 IMAP。
+
+        用法: python email_automation.py --regenerate 7720
+        可以传多个 ID: python email_automation.py --regenerate 7720 7721 7722
+        """
+        # 规范化：支持传入列表或逗号分隔字符串
+        if isinstance(email_id, str) and (',' in email_id or ' ' in email_id):
+            ids = [x.strip() for x in email_id.replace(',', ' ').split()]
+        elif isinstance(email_id, list):
+            ids = [str(x).strip() for x in email_id]
+        else:
+            ids = [str(email_id).strip()]
+
+        results = []
+        for eid in ids:
+            result = self._regenerate_single(eid)
+            results.append(result)
+
+        # 打印汇总
+        succeeded = [r for r in results if r.get('success')]
+        failed = [r for r in results if not r.get('success')]
+        print(f"\n=== Regenerate Summary ===")
+        print(f"  Total: {len(results)}, OK: {len(succeeded)}, Failed: {len(failed)}")
+        for r in succeeded:
+            print(f"  [OK]   {r['id']}: {r.get('subject', '')[:60]}")
+        for r in failed:
+            print(f"  [FAIL] {r['id']}: {r.get('error', 'unknown')}")
+
+        return results
+
+    def _regenerate_single(self, email_id):
+        """重新生成单个邮件的草稿"""
+        result = {'id': email_id, 'success': False}
+
+        # 1. 从 DB 加载邮件
+        email = self.db.get_email_by_id(email_id)
+        if not email:
+            result['error'] = f"Email {email_id} not found in DB"
+            self.logger.error(result['error'])
+            print(f"[ERROR] {result['error']}")
+            return result
+
+        subject = email.get('subject', '(no subject)')
+        result['subject'] = subject
+        self.logger.info(f"Regenerating draft for [{email_id}] {subject}")
+
+        # 2. 清理邮件正文 + 重新提取信息
+        clean_body = self.content_extractor.clean_email_content(email.get('body', ''))
+        email_content = f"Subject: {subject}\n\n{clean_body}"
+
+        email_info = self.content_extractor.extract_info(
+            email_content,
+            cc_list=[],
+            sender_email=email.get('sender', '')
+        )
+        email_info['subject'] = subject
+        email_info['body'] = clean_body
+        email_info['attachments'] = email.get('attachments', [])
+
+        # 3. 调用 AI 生成草稿
+        response_body = self.response_generator.generate_response(email_info, email_content)
+        human_review_required = self.response_generator.last_human_review_required
+        human_review_reason = (
+            self.response_generator.last_human_review_reason
+            or "Knowledge base did not contain a confirmed answer"
+        )
+        human_review_label = self.response_generator.last_human_review_label or "Knowledge Gap - Needs Human"
+        if human_review_required and self._is_invalid_draft_content(response_body):
+            response_body = self._build_internal_check_acknowledgement()
+
+        # 4. 验证
+        if not response_body or self._is_invalid_draft_content(response_body):
+            error_msg = "AI 生成草稿为空或包含内部标记"
+            result['error'] = error_msg
+            self.logger.error(f"[{email_id}] {error_msg}")
+            print(f"[ERROR] [{email_id}] {error_msg}")
+            return result
+
+        status = 'human_review' if human_review_required else 'drafted'
+        reasoning = human_review_reason if human_review_required else "Manual regenerate"
+        label = human_review_label if human_review_required else None
+        if human_review_required:
+            issue_id = self._record_knowledge_gap_issue(email_id, email, email_info, human_review_reason)
+            if issue_id:
+                reasoning = f"{reasoning}; linked to issue #{issue_id}"
+
+        # 5. 存到 DB（更新 draft_body）
+        self.db.update_email_status(
+            email_id,
+            status,
+            draft_body=response_body,
+            reasoning=reasoning,
+            label=label,
+            knowledge_citations=self.response_generator.last_knowledge_citations
+        )
+
+        # 更新 AI 分析结果
+        self.db.update_email_ai_analysis(email_id, {
+            'intent': email_info.get('problem_category', 'Technical Support'),
+            'sentiment': email_info.get('sentiment'),
+            'product_model': email_info.get('product_model'),
+            'mail_category': email_info.get('mail_category'),
+            'issue_category': email_info.get('issue_category'),
+            'reply_template_category': email_info.get('reply_template_category'),
+            'classification_confidence': email_info.get('classification_confidence'),
+            'classification_status': 'manual_regenerated',
+            'classification_reason': email_info.get('classification_reason'),
+            'classification_evidence': email_info.get('classification_evidence', []),
+            'issue_facts': email_info.get('issue_facts'),
+            'issue_fingerprint': email_info.get('issue_fingerprint'),
+        })
+
+        # 6. 尝试更新 IMAP 草稿（如果 IMAP 可用）
+        recipient = self._extract_email_address(
+            email.get('sender') or ''
+        )
+        if recipient:
+            try:
+                if self.imap_handler.connect_imap():
+                    success = self.imap_handler.save_draft(
+                        recipient=recipient,
+                        subject=subject,
+                        body=response_body
+                    )
+                    if success:
+                        self.logger.info(f"[{email_id}] IMAP draft updated")
+                    else:
+                        self.logger.warning(f"[{email_id}] IMAP draft update failed")
+                    self.imap_handler.disconnect_imap()
+            except Exception as e:
+                self.logger.warning(f"[{email_id}] IMAP update skipped: {e}")
+        else:
+            self.logger.warning(f"[{email_id}] Cannot extract recipient, IMAP draft skipped")
+
+        # 7. 输出草稿到控制台（前 500 字符预览）
+        print(f"\n{'='*60}")
+        print(f"[{email_id}] {subject}")
+        print(f"Product: {email_info.get('product_model', 'Unknown')}")
+        print(f"Intent:  {email_info.get('problem_category', 'N/A')}")
+        print(f"{'='*60}")
+        print(response_body[:2000])
+        if len(response_body) > 2000:
+            print(f"\n... ({len(response_body)} chars total, showing first 2000)")
+
+        result['success'] = True
+        result['preview'] = response_body[:500]
+        self.logger.info(f"[{email_id}] Draft regenerated: {len(response_body)} chars")
+        return result
+
     def _extract_email_address(self, sender_string):
         """Extract email address from sender string"""
         try:
@@ -810,7 +1371,7 @@ MOOER Support Team"""
             self.logger.error(f"Error calculating email hash: {e}")
             return None
     
-    def start_scheduling(self, interval_minutes=30):
+    def start_scheduling(self, interval_minutes=1):
         """Start the scheduling service"""
         self.logger.info(f"Starting email automation service with interval: {interval_minutes} minutes")
         
@@ -837,14 +1398,20 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Mooer Email Support Automation')
     parser.add_argument('--once', action='store_true', help='Run once and exit instead of scheduling')
-    parser.add_argument('--interval', type=int, default=30, help='Scheduling interval in minutes')
+    parser.add_argument('--interval', type=int, default=1, help='Scheduling interval in minutes')
+    parser.add_argument('--regenerate', type=str, nargs='*', default=None,
+                        help='Regenerate draft for specific email ID(s). '
+                             'Usage: --regenerate 7720 or --regenerate 7720 7721 7722')
     
     args = parser.parse_args()
     
     # Create and start the email automation system
     automation = EmailAutomation()
     
-    if args.once:
+    if args.regenerate:
+        # Regenerate specific draft(s)
+        automation.regenerate_draft(args.regenerate)
+    elif args.once:
         automation.logger.info("Running in single-pass mode")
         automation.process_emails()
     else:

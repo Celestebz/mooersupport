@@ -6,13 +6,27 @@ __pycache__/
 env/
 venv/
 
+# Frontend
+node_modules/
+web/node_modules/
+web/dist/
+.vite/
+
 # Project Specific
 MOOER产品说明书/
 logs/
 *.log
 mooer_support.db
+mooer_support.db-shm
+mooer_support.db-wal
+mooer_support_before_*.db
 processed_emails.txt
 processed_hashes.txt
+.workbuddy/
+manuals_cache/
+Daily Report/
+exports/
+nul
 
 # Environment Variables
 .env

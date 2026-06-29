@@ -41,16 +41,15 @@ def main():
         sys.stderr.write("Error: No email content provided.\n")
         return
 
-    # Paths (Dynamic based on script location)
+    # Paths（模板已迁移至数据库）
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    templates_path = os.path.join(base_dir, "售后模板", "Customer Service Email.txt")
     pdf_reader_path = os.path.join(base_dir, "pdf_reader.py")
     product_manuals_path = os.path.join(base_dir, "MOOER产品说明书")
 
     try:
         # Initialize components
         extractor = ContentExtractor()
-        generator = ResponseGenerator(templates_path, pdf_reader_path, product_manuals_path)
+        generator = ResponseGenerator(None, pdf_reader_path, product_manuals_path)
 
         # 1. Extract Info
         # Ensure extraction logs are visible

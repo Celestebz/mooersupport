@@ -30,7 +30,7 @@ def main():
 
     # 初始化 ResponseGenerator 以使用其标准化逻辑
     response_gen = ResponseGenerator(
-        templates_path="售后模板/Customer Service Email.txt",
+        templates_path=None,
         pdf_reader_path="pdf_reader.py",
         product_manuals_path="MOOER产品说明书"
     )

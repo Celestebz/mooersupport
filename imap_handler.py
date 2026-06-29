@@ -27,7 +27,7 @@ class IMAPHandler:
         # Try to load from YAML file if provided
         if config_path and os.path.exists(config_path):
             with open(config_path, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f)
+                config = yaml.safe_load(f) or {}
         else:
             # Load from environment variables
             config = {
@@ -48,6 +48,11 @@ class IMAPHandler:
                     'draft_folder': os.getenv('DRAFT_FOLDER', 'Drafts')
                 }
             }
+
+        email_config = config.setdefault('email', {})
+        # Keep secrets out of config.yml. Environment variables always win.
+        email_config['address'] = os.getenv('EMAIL_ADDRESS', email_config.get('address', 'support@mooeraudio.com'))
+        email_config['password'] = os.getenv('EMAIL_PASSWORD', email_config.get('password', ''))
         
         return config
     
@@ -202,6 +207,8 @@ class IMAPHandler:
         
         # Get Message-ID
         message_id = msg.get('Message-ID', '')
+        in_reply_to = msg.get('In-Reply-To', '')
+        references = msg.get('References', '')
 
         # Get email CC
         cc_header = msg.get('CC', '')
@@ -320,74 +327,179 @@ class IMAPHandler:
             'reply_to': reply_to,
             'date': date,
             'message_id': message_id,
+            'in_reply_to': in_reply_to,
+            'references': references,
             'cc_list': cc_list,
             'body': body,
             'html_body': html_body,
             'attachments': attachments
         }
     
-    def save_draft(self, recipient, subject, body, original_msg_id=None, original_html=None, original_sender=None, original_date=None, reply_mode=True):
-        """Save an email as a draft with reply formatting"""
+    def download_attachments(self, email_id):
+        """Download all attachments from a specific email by UID.
+        Returns list of dicts with {filename, filepath, content_type}."""
+        import tempfile
+        import os as _os
+
+        attachments = []
+        try:
+            if not self.imap:
+                if not self.connect_imap():
+                    return attachments
+
+            self.imap.select('INBOX')
+            status, data = self.imap.uid('FETCH', email_id, '(BODY[])')
+            if status != 'OK' or not data or not data[0]:
+                return attachments
+
+            import email as _email
+            raw_email = data[0][1]
+            msg = _email.message_from_bytes(raw_email)
+
+            if not msg.is_multipart():
+                return attachments
+
+            for part in msg.walk():
+                filename = part.get_filename()
+                if not filename:
+                    continue
+                try:
+                    from email.header import decode_header
+                    fname, encoding = decode_header(filename)[0]
+                    if isinstance(fname, bytes):
+                        fname = fname.decode(encoding or 'utf-8', errors='replace')
+                except Exception:
+                    fname = filename
+
+                payload = part.get_payload(decode=True)
+                if not payload:
+                    continue
+
+                # Save to temp dir
+                tmpdir = tempfile.mkdtemp(prefix='mooer_attach_')
+                filepath = _os.path.join(tmpdir, fname)
+                with open(filepath, 'wb') as f:
+                    f.write(payload)
+
+                attachments.append({
+                    'filename': fname,
+                    'filepath': filepath,
+                    'content_type': part.get_content_type(),
+                })
+
+            return attachments
+
+        except Exception as e:
+            self.logger.error(f"Error downloading attachments for {email_id}: {e}")
+            return attachments
+
+    def save_draft(self, recipient, subject, body, original_msg_id=None, original_html=None, original_sender=None, original_date=None, reply_mode=True, attachments=None):
+        """Save an email as a draft with reply or forward formatting.
+
+        reply_mode=True: customer reply with "Re:" subject and quoted original.
+        reply_mode=False: internal forward with original email inline.
+        attachments: list of dicts with {filename, filepath} to attach.
+        """
         try:
             if not self.imap:
                 if not self.connect_imap():
                     return False
-            
-            # Create a MIME email message
+
             from email.mime.multipart import MIMEMultipart
             from email.mime.text import MIMEText
+            from email.mime.base import MIMEBase
+            from email import encoders
             from email.header import Header
             import time
             import html
-            
-            # Create message container
-            msg = MIMEMultipart('alternative')
-            
+            import os as _os
+
+            has_attachments = attachments and len(attachments) > 0
+
+            # Create message container - use 'mixed' if attachments, else 'alternative'
+            if has_attachments:
+                msg = MIMEMultipart('mixed')
+            else:
+                msg = MIMEMultipart('alternative')
+
             # Set headers
             msg['From'] = self.config['email']['address']
             msg['To'] = recipient
-            
-            # Handle Subject (add RE: for customer replies, keep exact subject
-            # for internal forward drafts)
+
+            # Handle Subject
             if reply_mode and not subject.lower().startswith('re:'):
                 msg['Subject'] = Header(f"Re: {subject}", 'utf-8')
             else:
                 msg['Subject'] = Header(subject, 'utf-8')
-            
+
             # Set message date
             msg['Date'] = email.utils.formatdate(localtime=True)
-            
-            # Set Reply headers if original message ID is provided
+
+            # Set Reply headers if original message ID is provided (reply mode only)
             if reply_mode and original_msg_id:
                 msg['In-Reply-To'] = original_msg_id
                 msg['References'] = original_msg_id
-            
+
             # --- Construct Plain Text Body ---
-            # NOTE: For this implementation, we assume 'body' is just the NEW response text.
-            # We will construct the full body.
-            
-            # 1. Plain Text Part
             full_plain_text = body
             if reply_mode and original_sender and original_date:
-                 full_plain_text += f"\n\nOn {original_date}, {original_sender} wrote:\n> ..."
-            
-            msg.attach(MIMEText(full_plain_text, 'plain', 'utf-8'))
-            
-            # --- Construct HTML Body ---
-            # Convert new response to HTML (simple conversion)
-            # Replace newlines with <br>
-            new_response_html = html.escape(body).replace('\n', '<br>')
-            
-            full_html = f'<div dir="ltr">{new_response_html}</div>'
-            
-            if reply_mode and original_html:
-                # Append original HTML
-                full_html += f'<br><div class="gmail_quote"><div dir="ltr" class="gmail_attr">On {original_date}, {html.escape(original_sender or "")} wrote:<br></div><blockquote class="gmail_quote" style="margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">{original_html}</blockquote></div>'
-            elif reply_mode and original_sender and original_date:
-                 # Fallback if no HTML available but we have metadata
-                 full_html += f'<br><div class="gmail_quote"><div dir="ltr" class="gmail_attr">On {original_date}, {html.escape(original_sender)} wrote:<br></div><blockquote class="gmail_quote" style="margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">...</blockquote></div>'
+                full_plain_text += f"\n\nOn {original_date}, {original_sender} wrote:\n> ..."
+            elif not reply_mode and original_sender and original_date:
+                # Forward mode: body already includes original email content
+                # (from _build_rnd_forward_body). HTML uses original_html below.
+                pass
 
-            msg.attach(MIMEText(full_html, 'html', 'utf-8'))
+            # --- Attach text/plain ---
+            if has_attachments:
+                # For mixed mode, wrap text parts in an 'alternative' sub-container
+                alt_part = MIMEMultipart('alternative')
+                alt_part.attach(MIMEText(full_plain_text, 'plain', 'utf-8'))
+
+                # --- Construct HTML Body ---
+                new_response_html = html.escape(body).replace('\n', '<br>')
+                full_html = f'<div dir="ltr">{new_response_html}</div>'
+
+                if not reply_mode and original_html:
+                    # Forward mode: wrap original as quoted forward
+                    forward_header = f'<br><div style="border:none;border-top:solid #B5C4DF 1.0pt;padding:3.0pt 0in 0in 0in"><p><b>---------- Forwarded message ---------</b><br>From: <b>{html.escape(original_sender or "")}</b><br>Date: {original_date}<br>Subject: {subject}<br>To: {html.escape(self.config["email"]["address"])}</p></div><br>'
+                    full_html += forward_header + original_html
+                elif reply_mode and original_html:
+                    full_html += f'<br><div class="gmail_quote"><div dir="ltr" class="gmail_attr">On {original_date}, {html.escape(original_sender or "")} wrote:<br></div><blockquote class="gmail_quote" style="margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">{original_html}</blockquote></div>'
+                elif reply_mode and original_sender and original_date:
+                    full_html += f'<br><div class="gmail_quote"><div dir="ltr" class="gmail_attr">On {original_date}, {html.escape(original_sender)} wrote:<br></div><blockquote class="gmail_quote" style="margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">...</blockquote></div>'
+
+                alt_part.attach(MIMEText(full_html, 'html', 'utf-8'))
+                msg.attach(alt_part)
+
+                # --- Attach files ---
+                for att in attachments:
+                    filepath = att.get('filepath', '')
+                    filename = att.get('filename', 'attachment')
+                    if not filepath or not _os.path.exists(filepath):
+                        continue
+                    with open(filepath, 'rb') as f:
+                        file_data = f.read()
+                    mime_part = MIMEBase('application', 'octet-stream')
+                    mime_part.set_payload(file_data)
+                    encoders.encode_base64(mime_part)
+                    mime_part.add_header('Content-Disposition', f'attachment; filename="{filename}"')
+                    msg.attach(mime_part)
+            else:
+                # No attachments: use simple alternative structure
+                msg.attach(MIMEText(full_plain_text, 'plain', 'utf-8'))
+
+                new_response_html = html.escape(body).replace('\n', '<br>')
+                full_html = f'<div dir="ltr">{new_response_html}</div>'
+
+                if not reply_mode and original_html:
+                    forward_header = f'<br><div style="border:none;border-top:solid #B5C4DF 1.0pt;padding:3.0pt 0in 0in 0in"><p><b>---------- Forwarded message ---------</b><br>From: <b>{html.escape(original_sender or "")}</b><br>Date: {original_date}<br>Subject: {subject}<br>To: {html.escape(self.config["email"]["address"])}</p></div><br>'
+                    full_html += forward_header + original_html
+                elif reply_mode and original_html:
+                    full_html += f'<br><div class="gmail_quote"><div dir="ltr" class="gmail_attr">On {original_date}, {html.escape(original_sender or "")} wrote:<br></div><blockquote class="gmail_quote" style="margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">{original_html}</blockquote></div>'
+                elif reply_mode and original_sender and original_date:
+                    full_html += f'<br><div class="gmail_quote"><div dir="ltr" class="gmail_attr">On {original_date}, {html.escape(original_sender)} wrote:<br></div><blockquote class="gmail_quote" style="margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">...</blockquote></div>'
+
+                msg.attach(MIMEText(full_html, 'html', 'utf-8'))
             
             # Convert message to bytes
             msg_bytes = msg.as_bytes()
@@ -477,7 +589,7 @@ class IMAPHandler:
                         draft_data['is_draft'] = True
                         drafts.append(draft_data)
 
-            self.logger.info(f"Fetched {len(drafts)} drafts from Gmail")
+            self.logger.info(f"Fetched {len(drafts)} drafts from mailbox")
             return drafts
 
         except Exception as e:
